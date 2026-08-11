@@ -1,0 +1,652 @@
+/* ===========================================================================
+   HISTORY BOT
+   The shell stays a neutral near-black instrument. The selected era supplies
+   the only colour that moves. See PRODUCT.md → Design Principles.
+   =========================================================================== */
+
+/* --accent is registered so it can genuinely interpolate between eras.
+   Without @property, a custom property snaps instead of transitioning. */
+@property --accent {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.62 0.13 130);
+}
+
+:root {
+  /* Surfaces — chroma 0. The mood lives in the accent, not the background. */
+  --bg: oklch(0.09 0 0);
+  --surface: oklch(0.13 0 0);
+  --surface-hi: oklch(0.17 0 0);
+  --line: oklch(0.23 0 0);
+  --line-hi: oklch(0.32 0 0);
+
+  /* Ink — all checked ≥4.5:1 against --bg */
+  --ink: oklch(0.96 0 0);
+  --ink-mid: oklch(0.78 0 0);
+  --ink-low: oklch(0.64 0 0);
+
+  /* Era accent (default: verdigris — oxidised bronze) */
+  --accent: oklch(0.62 0.13 130);
+
+  /* Type */
+  --font-ui:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, monospace;
+
+  --step--1: 0.8125rem;
+  --step-0: 0.9375rem;
+  --step-1: 1.0625rem;
+  --step-2: 1.25rem;
+  --step-3: 1.5rem;
+
+  /* Space */
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --s-7: 3rem;
+
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+
+  /* z-scale — semantic, never arbitrary */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-overlay: 20;
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur: 200ms;
+  --dur-era: 550ms;
+}
+
+/* --- Era themes ---------------------------------------------------------- */
+[data-era="all"] {
+  --accent: oklch(0.62 0.13 130);
+} /* verdigris  */
+[data-era="rome"] {
+  --accent: oklch(0.62 0.17 32);
+} /* oxide red  */
+[data-era="egypt"] {
+  --accent: oklch(0.76 0.14 82);
+} /* gold       */
+[data-era="medieval"] {
+  --accent: oklch(0.62 0.15 285);
+} /* indigo     */
+[data-era="ww2"] {
+  --accent: oklch(0.66 0.09 226);
+} /* steel      */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--step-0);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: --accent var(--dur-era) var(--ease);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* ===========================================================================
+   SHELL
+   =========================================================================== */
+
+.app {
+  display: grid;
+  grid-template-columns: 264px 1fr;
+  height: 100dvh;
+}
+
+/* ===========================================================================
+   RAIL
+   =========================================================================== */
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-6);
+  padding: var(--s-5);
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin: 0;
+  font-size: var(--step-1);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.brand__thin {
+  color: var(--ink-low);
+  font-weight: 400;
+}
+
+/* A thin ring — the edge of a coin, not a clip-art scroll. */
+.brand__mark {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  flex: none;
+  position: relative;
+  transition: --accent var(--dur-era) var(--ease);
+}
+
+.brand__mark::after {
+  content: "";
+  position: absolute;
+  inset: 3px 3px auto auto;
+  width: 2px;
+  height: 5px;
+  background: var(--accent);
+  transform-origin: bottom center;
+}
+
+.eras {
+  flex: 1;
+}
+
+.eras__label,
+.now__label,
+.empty__label {
+  margin: 0 0 var(--s-3);
+  font-size: var(--step--1);
+  color: var(--ink-low);
+}
+
+.eras__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.era {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: var(--s-3);
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--ink-mid);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.era:hover {
+  background: var(--surface-hi);
+  color: var(--ink);
+}
+
+.era[aria-checked="true"] {
+  background: color-mix(in oklch, var(--accent) 16%, transparent);
+  border-color: color-mix(in oklch, var(--accent) 45%, transparent);
+  color: var(--ink);
+}
+
+.era__name {
+  font-weight: 500;
+}
+
+.era__years {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink-low);
+  letter-spacing: -0.01em;
+}
+
+.era[aria-checked="true"] .era__years {
+  color: color-mix(in oklch, var(--accent) 72%, var(--ink));
+}
+
+.rail__foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.reset {
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--ink-mid);
+  font: inherit;
+  font-size: var(--step--1);
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.reset:hover {
+  background: var(--surface-hi);
+  color: var(--ink);
+}
+
+.caveat {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--ink-low);
+}
+
+/* ===========================================================================
+   CHAT
+   =========================================================================== */
+
+.chat {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.chat__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-6);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: var(--bg);
+}
+
+.now {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+}
+
+.now__label {
+  margin: 0;
+  font-size: var(--step-0);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.now__years {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink-low);
+}
+
+.transcript {
+  overflow-y: auto;
+  padding: var(--s-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  scrollbar-gutter: stable;
+}
+
+/* --- Messages ------------------------------------------------------------ */
+
+.msg {
+  max-width: 68ch;
+  animation: rise 320ms var(--ease) both;
+}
+
+.msg--user {
+  align-self: flex-end;
+  max-width: 46ch;
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-lg);
+  background: var(--surface-hi);
+  color: var(--ink);
+}
+
+.msg--bot {
+  align-self: flex-start;
+}
+
+.msg--bot .msg__who {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-bottom: var(--s-2);
+  font-size: 0.75rem;
+  color: var(--accent);
+  transition: --accent var(--dur-era) var(--ease);
+}
+
+.msg--bot .msg__who::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.msg__body > :first-child {
+  margin-top: 0;
+}
+.msg__body > :last-child {
+  margin-bottom: 0;
+}
+
+.msg__body p {
+  margin: 0 0 var(--s-3);
+  text-wrap: pretty;
+}
+
+.msg__body strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.msg__body ul,
+.msg__body ol {
+  margin: 0 0 var(--s-3);
+  padding-left: 1.25em;
+}
+
+.msg__body li {
+  margin-bottom: var(--s-1);
+}
+
+.msg--error {
+  align-self: flex-start;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid oklch(0.5 0.14 25);
+  border-radius: var(--r-md);
+  background: oklch(0.2 0.05 25);
+  color: oklch(0.9 0.05 25);
+  font-size: var(--step--1);
+}
+
+/* --- Thinking indicator --------------------------------------------------- */
+
+.thinking {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  padding: var(--s-2) 0;
+}
+
+.thinking span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.2s var(--ease) infinite;
+}
+
+.thinking span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.thinking span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+/* --- Empty state — teaches the interface ---------------------------------- */
+
+.empty {
+  margin: auto 0;
+  max-width: 58ch;
+  animation: rise 400ms var(--ease) both;
+}
+
+.empty__title {
+  margin: 0 0 var(--s-2);
+  font-size: var(--step-3);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.empty__sub {
+  margin: 0 0 var(--s-5);
+  color: var(--ink-mid);
+  text-wrap: pretty;
+}
+
+.empty__label {
+  margin-bottom: var(--s-3);
+}
+
+.starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.starter {
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line-hi);
+  border-radius: 999px;
+  background: none;
+  color: var(--ink-mid);
+  font: inherit;
+  font-size: var(--step--1);
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+
+.starter:hover {
+  border-color: color-mix(in oklch, var(--accent) 55%, transparent);
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+  color: var(--ink);
+}
+
+/* --- Composer ------------------------------------------------------------- */
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-3);
+  margin: 0 var(--s-6) var(--s-5);
+  padding: var(--s-3);
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  transition: border-color var(--dur) var(--ease);
+}
+
+.composer:focus-within {
+  border-color: color-mix(in oklch, var(--accent) 60%, transparent);
+}
+
+.composer__input {
+  flex: 1;
+  max-height: 40vh;
+  padding: var(--s-2);
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  field-sizing: content;
+}
+
+.composer__input::placeholder {
+  color: var(--ink-low);
+}
+
+.composer__send {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--accent);
+  color: oklch(0.14 0 0);
+  cursor: pointer;
+  transition:
+    --accent var(--dur-era) var(--ease),
+    opacity var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+
+.composer__send svg {
+  width: 18px;
+  height: 18px;
+}
+
+.composer__send:hover:not(:disabled) {
+  transform: translateX(1px);
+}
+
+.composer__send:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ===========================================================================
+   MOTION
+   =========================================================================== */
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.85);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* The thinking indicator still has to read as "working". */
+  .thinking span {
+    animation: none !important;
+    opacity: 0.7;
+  }
+}
+
+/* ===========================================================================
+   RESPONSIVE — structural, not fluid type
+   =========================================================================== */
+
+@media (max-width: 820px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .rail {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--s-4);
+    padding: var(--s-3) var(--s-4);
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .rail__head,
+  .eras__label,
+  .caveat {
+    display: none;
+  }
+
+  .eras__list {
+    flex-direction: row;
+    gap: var(--s-2);
+  }
+
+  .era {
+    white-space: nowrap;
+    padding: var(--s-2) var(--s-3);
+  }
+
+  .era__years {
+    display: none;
+  }
+
+  .rail__foot {
+    margin-left: auto;
+  }
+
+  .reset {
+    white-space: nowrap;
+  }
+
+  .chat__head {
+    padding: var(--s-3) var(--s-4);
+  }
+
+  .transcript {
+    padding: var(--s-4);
+  }
+
+  .composer {
+    margin: 0 var(--s-4) var(--s-4);
+  }
+}
