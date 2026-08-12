@@ -1,84 +1,141 @@
 /* ===========================================================================
    HISTORY BOT
-   The shell stays a neutral near-black instrument. The selected era supplies
-   the only colour that moves. See PRODUCT.md → Design Principles.
+   The shell is a neutral instrument. The selected era supplies the colour,
+   the surface tint, and the display typeface. See PRODUCT.md.
    =========================================================================== */
 
-/* --accent is registered so it can genuinely interpolate between eras.
-   Without @property, a custom property snaps instead of transitioning. */
+/* Registered so accent and tint genuinely interpolate between eras instead
+   of snapping. Unregistered custom properties can't be transitioned. */
 @property --accent {
   syntax: "<color>";
   inherits: true;
   initial-value: oklch(0.62 0.13 130);
 }
+@property --tint {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.09 0.004 130);
+}
+@property --tint-hi {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.13 0.006 130);
+}
 
 :root {
-  /* Surfaces — chroma 0. The mood lives in the accent, not the background. */
-  --bg: oklch(0.09 0 0);
-  --surface: oklch(0.13 0 0);
+  --accent: oklch(0.62 0.13 130);
+  --tint: oklch(0.09 0.004 130);
+  --tint-hi: oklch(0.13 0.006 130);
+
+  --bg: var(--tint);
+  --surface: var(--tint-hi);
+  /* Neutral defaults — safe everywhere. Tinted versions below, gated. */
   --surface-hi: oklch(0.17 0 0);
   --line: oklch(0.23 0 0);
   --line-hi: oklch(0.32 0 0);
 
-  /* Ink — all checked ≥4.5:1 against --bg */
+  /* Ink — all ≥4.5:1 against --bg */
   --ink: oklch(0.96 0 0);
   --ink-mid: oklch(0.78 0 0);
   --ink-low: oklch(0.64 0 0);
 
-  /* Era accent (default: verdigris — oxidised bronze) */
-  --accent: oklch(0.62 0.13 130);
+  --danger: oklch(0.68 0.16 25);
 
-  /* Type */
+  /* Body is always the system stack. Only display changes per era, and it
+     loads on demand. */
   --font-ui:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono:
     ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, monospace;
+  --font-display: var(--font-ui);
+  --display-weight: 600;
+  --display-tracking: -0.02em;
 
   --step--1: 0.8125rem;
   --step-0: 0.9375rem;
   --step-1: 1.0625rem;
   --step-2: 1.25rem;
-  --step-3: 1.5rem;
 
-  /* Space */
   --s-1: 0.25rem;
   --s-2: 0.5rem;
   --s-3: 0.75rem;
   --s-4: 1rem;
   --s-5: 1.5rem;
   --s-6: 2rem;
-  --s-7: 3rem;
 
   --r-sm: 6px;
   --r-md: 10px;
   --r-lg: 14px;
 
-  /* z-scale — semantic, never arbitrary */
   --z-base: 0;
   --z-sticky: 10;
-  --z-overlay: 20;
+  --z-scrim: 20;
+  --z-drawer: 30;
 
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --dur: 200ms;
-  --dur-era: 550ms;
+  --dur-era: 650ms;
 }
 
-/* --- Era themes ---------------------------------------------------------- */
+/* Where relative colour syntax is supported, derive raised surfaces and
+   borders from the era tint so the whole shell shifts hue together.
+   Browsers without it keep the neutral defaults — the design still works. */
+@supports (color: oklch(from red l c h)) {
+  :root {
+    --surface-hi: oklch(from var(--tint-hi) calc(l + 0.04) c h);
+    --line: oklch(from var(--tint-hi) calc(l + 0.1) c h);
+    --line-hi: oklch(from var(--tint-hi) calc(l + 0.19) c h);
+  }
+}
+
+/* --- Era identities ------------------------------------------------------ */
+
 [data-era="all"] {
   --accent: oklch(0.62 0.13 130);
-} /* verdigris  */
+  --tint: oklch(0.09 0.004 130);
+  --tint-hi: oklch(0.13 0.006 130);
+  --font-display: var(--font-ui);
+  --display-weight: 600;
+  --display-tracking: -0.02em;
+}
+
 [data-era="rome"] {
-  --accent: oklch(0.62 0.17 32);
-} /* oxide red  */
+  --accent: oklch(0.64 0.17 32);
+  --tint: oklch(0.09 0.008 32);
+  --tint-hi: oklch(0.13 0.012 32);
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --display-weight: 700;
+  --display-tracking: -0.01em;
+}
+
+/* Slab serifs were literally called "Egyptians" in 19th-century foundries. */
 [data-era="egypt"] {
-  --accent: oklch(0.76 0.14 82);
-} /* gold       */
+  --accent: oklch(0.78 0.14 82);
+  --tint: oklch(0.09 0.008 82);
+  --tint-hi: oklch(0.13 0.012 82);
+  --font-display: "Zilla Slab", Rockwell, serif;
+  --display-weight: 600;
+  --display-tracking: -0.02em;
+}
+
+/* Cardo was designed for medieval and classical scholarship. */
 [data-era="medieval"] {
-  --accent: oklch(0.62 0.15 285);
-} /* indigo     */
+  --accent: oklch(0.66 0.15 285);
+  --tint: oklch(0.09 0.008 285);
+  --tint-hi: oklch(0.13 0.012 285);
+  --font-display: "Cardo", "Times New Roman", serif;
+  --display-weight: 700;
+  --display-tracking: -0.015em;
+}
+
 [data-era="ww2"] {
-  --accent: oklch(0.66 0.09 226);
-} /* steel      */
+  --accent: oklch(0.7 0.1 226);
+  --tint: oklch(0.09 0.006 226);
+  --tint-hi: oklch(0.13 0.01 226);
+  --font-display: "Oswald", "Arial Narrow", sans-serif;
+  --display-weight: 600;
+  --display-tracking: 0;
+}
 
 * {
   box-sizing: border-box;
@@ -97,7 +154,10 @@ body {
   font-size: var(--step-0);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
-  transition: --accent var(--dur-era) var(--ease);
+  transition:
+    --accent var(--dur-era) var(--ease),
+    --tint var(--dur-era) var(--ease),
+    --tint-hi var(--dur-era) var(--ease);
 }
 
 .sr-only {
@@ -118,13 +178,17 @@ body {
   border-radius: var(--r-sm);
 }
 
+button {
+  font: inherit;
+}
+
 /* ===========================================================================
    SHELL
    =========================================================================== */
 
 .app {
   display: grid;
-  grid-template-columns: 264px 1fr;
+  grid-template-columns: 276px 1fr;
   height: 100dvh;
 }
 
@@ -135,11 +199,15 @@ body {
 .rail {
   display: flex;
   flex-direction: column;
-  gap: var(--s-6);
-  padding: var(--s-5);
+  gap: var(--s-4);
+  padding: var(--s-4);
   background: var(--surface);
   border-right: 1px solid var(--line);
-  overflow-y: auto;
+  min-height: 0;
+}
+
+.rail__head {
+  padding: var(--s-2) var(--s-2) 0;
 }
 
 .brand {
@@ -157,7 +225,6 @@ body {
   font-weight: 400;
 }
 
-/* A thin ring — the edge of a coin, not a clip-art scroll. */
 .brand__mark {
   width: 18px;
   height: 18px;
@@ -165,7 +232,6 @@ body {
   border-radius: 50%;
   flex: none;
   position: relative;
-  transition: --accent var(--dur-era) var(--ease);
 }
 
 .brand__mark::after {
@@ -175,95 +241,131 @@ body {
   width: 2px;
   height: 5px;
   background: var(--accent);
-  transform-origin: bottom center;
 }
 
-.eras {
-  flex: 1;
-}
-
-.eras__label,
-.now__label,
-.empty__label {
-  margin: 0 0 var(--s-3);
-  font-size: var(--step--1);
-  color: var(--ink-low);
-}
-
-.eras__list {
+.new-chat {
   display: flex;
-  flex-direction: column;
-  gap: var(--s-1);
-}
-
-.era {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+  align-items: center;
+  gap: var(--s-2);
   width: 100%;
   padding: var(--s-3);
-  border: 1px solid transparent;
-  border-radius: var(--r-md);
-  background: none;
-  color: var(--ink-mid);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background var(--dur) var(--ease),
-    color var(--dur) var(--ease),
-    border-color var(--dur) var(--ease);
-}
-
-.era:hover {
-  background: var(--surface-hi);
-  color: var(--ink);
-}
-
-.era[aria-checked="true"] {
-  background: color-mix(in oklch, var(--accent) 16%, transparent);
-  border-color: color-mix(in oklch, var(--accent) 45%, transparent);
-  color: var(--ink);
-}
-
-.era__name {
-  font-weight: 500;
-}
-
-.era__years {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--ink-low);
-  letter-spacing: -0.01em;
-}
-
-.era[aria-checked="true"] .era__years {
-  color: color-mix(in oklch, var(--accent) 72%, var(--ink));
-}
-
-.rail__foot {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-4);
-}
-
-.reset {
-  padding: var(--s-2) var(--s-3);
   border: 1px solid var(--line-hi);
   border-radius: var(--r-md);
   background: none;
+  color: var(--ink);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.new-chat svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.new-chat:hover {
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+  border-color: color-mix(in oklch, var(--accent) 50%, transparent);
+}
+
+/* --- Conversation list ---------------------------------------------------- */
+
+.convos {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0 calc(var(--s-2) * -1);
+  padding: 0 var(--s-2);
+  scrollbar-width: thin;
+}
+
+.convo-group {
+  margin-bottom: var(--s-4);
+}
+
+.convo-group__label {
+  margin: 0 var(--s-2) var(--s-2);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-low);
+}
+
+.convo {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  width: 100%;
+  padding: var(--s-2) var(--s-3);
+  border: 0;
+  border-radius: var(--r-md);
+  background: none;
   color: var(--ink-mid);
-  font: inherit;
-  font-size: var(--step--1);
+  text-align: left;
   cursor: pointer;
   transition:
     background var(--dur) var(--ease),
     color var(--dur) var(--ease);
 }
 
-.reset:hover {
+.convo:hover {
   background: var(--surface-hi);
   color: var(--ink);
+}
+
+.convo[aria-current="true"] {
+  background: color-mix(in oklch, var(--accent) 15%, transparent);
+  color: var(--ink);
+}
+
+/* Era is signalled by a dot AND the title's tooltip — never colour alone. */
+.convo__dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--era-dot, var(--ink-low));
+}
+
+/* Fixed per era — these don't follow the active theme, so a glance down the
+   list tells you which era each conversation belongs to. */
+.convo[data-era="all"] {
+  --era-dot: oklch(0.62 0.13 130);
+}
+.convo[data-era="rome"] {
+  --era-dot: oklch(0.64 0.17 32);
+}
+.convo[data-era="egypt"] {
+  --era-dot: oklch(0.78 0.14 82);
+}
+.convo[data-era="medieval"] {
+  --era-dot: oklch(0.66 0.15 285);
+}
+.convo[data-era="ww2"] {
+  --era-dot: oklch(0.7 0.1 226);
+}
+
+.convo__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--step--1);
+}
+
+.convos__empty {
+  padding: var(--s-3);
+  margin: 0;
+  font-size: var(--step--1);
+  color: var(--ink-low);
+}
+
+.rail__foot {
+  border-top: 1px solid var(--line);
+  padding-top: var(--s-4);
 }
 
 .caveat {
@@ -286,9 +388,9 @@ body {
 
 .chat__head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--s-3);
-  padding: var(--s-4) var(--s-6);
+  padding: var(--s-3) var(--s-6);
   border-bottom: 1px solid var(--line);
   position: sticky;
   top: 0;
@@ -296,23 +398,64 @@ body {
   background: var(--bg);
 }
 
+.chat__menu {
+  display: none;
+}
+
 .now {
   display: flex;
   align-items: baseline;
   gap: var(--s-3);
+  min-width: 0;
+  flex: 1;
 }
 
-.now__label {
-  margin: 0;
-  font-size: var(--step-0);
-  font-weight: 600;
+.now__era {
+  font-family: var(--font-display);
+  font-size: var(--step-2);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.now__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--step--1);
+  color: var(--ink-low);
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border: 0;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--ink-low);
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.icon-btn:hover {
+  background: var(--surface-hi);
   color: var(--ink);
 }
 
-.now__years {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--ink-low);
+[data-delete]:hover {
+  color: var(--danger);
 }
 
 .transcript {
@@ -338,28 +481,33 @@ body {
   border-radius: var(--r-lg);
   background: var(--surface-hi);
   color: var(--ink);
+  white-space: pre-wrap;
 }
 
 .msg--bot {
   align-self: flex-start;
+  width: 100%;
 }
 
-.msg--bot .msg__who {
+.msg__who {
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  margin-bottom: var(--s-2);
-  font-size: 0.75rem;
+  margin: 0 0 var(--s-2);
+  font-family: var(--font-display);
+  font-size: var(--step-0);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
   color: var(--accent);
-  transition: --accent var(--dur-era) var(--ease);
 }
 
-.msg--bot .msg__who::before {
+.msg__who::before {
   content: "";
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--accent);
+  flex: none;
 }
 
 .msg__body > :first-child {
@@ -374,9 +522,21 @@ body {
   text-wrap: pretty;
 }
 
+.msg__body h2,
+.msg__body h3 {
+  margin: var(--s-4) 0 var(--s-2);
+  font-size: var(--step-1);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
 .msg__body strong {
   color: var(--ink);
   font-weight: 600;
+}
+
+.msg__body em {
+  color: var(--ink-mid);
 }
 
 .msg__body ul,
@@ -389,6 +549,60 @@ body {
   margin-bottom: var(--s-1);
 }
 
+.msg__body li::marker {
+  color: var(--accent);
+}
+
+.msg__body code {
+  padding: 0.1em 0.35em;
+  border-radius: var(--r-sm);
+  background: var(--surface-hi);
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+
+/* The block that grows while tokens stream in. */
+.msg__body .caret {
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: blink 1s steps(2, start) infinite;
+}
+
+.msg__actions {
+  display: flex;
+  gap: var(--s-1);
+  margin-top: var(--s-2);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.msg--bot:hover .msg__actions,
+.msg__actions:focus-within {
+  opacity: 1;
+}
+
+.act {
+  padding: var(--s-1) var(--s-2);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink-low);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.act:hover {
+  background: var(--surface-hi);
+  color: var(--ink);
+}
+
 .msg--error {
   align-self: flex-start;
   padding: var(--s-3) var(--s-4);
@@ -399,17 +613,25 @@ body {
   font-size: var(--step--1);
 }
 
-/* --- Thinking indicator --------------------------------------------------- */
+/* --- Thinking ------------------------------------------------------------- */
 
 .thinking {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--s-3);
   align-self: flex-start;
   padding: var(--s-2) 0;
+  color: var(--ink-low);
+  font-size: var(--step--1);
 }
 
-.thinking span {
+.thinking__dots {
+  display: flex;
+  gap: 5px;
+  flex: none;
+}
+
+.thinking__dots i {
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -417,37 +639,99 @@ body {
   animation: pulse 1.2s var(--ease) infinite;
 }
 
-.thinking span:nth-child(2) {
+.thinking__dots i:nth-child(2) {
   animation-delay: 0.15s;
 }
-.thinking span:nth-child(3) {
+.thinking__dots i:nth-child(3) {
   animation-delay: 0.3s;
 }
 
-/* --- Empty state — teaches the interface ---------------------------------- */
+.thinking__text {
+  animation: fadeIn 400ms var(--ease);
+}
+
+/* --- Empty state: the era chooser is the hero ----------------------------- */
 
 .empty {
   margin: auto 0;
-  max-width: 58ch;
-  animation: rise 400ms var(--ease) both;
+  width: 100%;
+  max-width: 62ch;
+  animation: rise 420ms var(--ease) both;
 }
 
 .empty__title {
-  margin: 0 0 var(--s-2);
-  font-size: var(--step-3);
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  margin: 0 0 var(--s-3);
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 5.5vw, 3.75rem);
+  font-weight: var(--display-weight);
+  line-height: 0.98;
+  letter-spacing: var(--display-tracking);
   text-wrap: balance;
 }
 
 .empty__sub {
-  margin: 0 0 var(--s-5);
+  margin: 0 0 var(--s-6);
+  max-width: 48ch;
   color: var(--ink-mid);
   text-wrap: pretty;
 }
 
 .empty__label {
-  margin-bottom: var(--s-3);
+  margin: 0 0 var(--s-3);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-low);
+}
+
+.era-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--s-2);
+  margin-bottom: var(--s-6);
+}
+
+.era-opt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--s-3);
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--ink-mid);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.era-opt:hover {
+  color: var(--ink);
+  border-color: color-mix(in oklch, var(--accent) 55%, transparent);
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+}
+
+.era-opt[aria-pressed="true"] {
+  color: var(--ink);
+  border-color: color-mix(in oklch, var(--accent) 70%, transparent);
+  background: color-mix(in oklch, var(--accent) 16%, transparent);
+}
+
+.era-opt__name {
+  font-weight: 500;
+}
+
+.era-opt__years {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--ink-low);
+}
+
+.era-opt[aria-pressed="true"] .era-opt__years {
+  color: color-mix(in oklch, var(--accent) 75%, var(--ink));
 }
 
 .starters {
@@ -462,7 +746,6 @@ body {
   border-radius: 999px;
   background: none;
   color: var(--ink-mid);
-  font: inherit;
   font-size: var(--step--1);
   cursor: pointer;
   transition:
@@ -482,7 +765,7 @@ body {
 .composer {
   display: flex;
   align-items: flex-end;
-  gap: var(--s-3);
+  gap: var(--s-2);
   margin: 0 var(--s-6) var(--s-5);
   padding: var(--s-3);
   border: 1px solid var(--line-hi);
@@ -513,7 +796,8 @@ body {
   color: var(--ink-low);
 }
 
-.composer__send {
+.composer__send,
+.composer__stop {
   display: grid;
   place-items: center;
   width: 34px;
@@ -521,16 +805,19 @@ body {
   flex: none;
   border: 0;
   border-radius: var(--r-md);
-  background: var(--accent);
-  color: oklch(0.14 0 0);
   cursor: pointer;
   transition:
-    --accent var(--dur-era) var(--ease),
     opacity var(--dur) var(--ease),
     transform var(--dur) var(--ease);
 }
 
-.composer__send svg {
+.composer__send {
+  background: var(--accent);
+  color: oklch(0.14 0 0);
+}
+
+.composer__send svg,
+.composer__stop svg {
   width: 18px;
   height: 18px;
 }
@@ -542,6 +829,32 @@ body {
 .composer__send:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+.composer__stop {
+  background: var(--surface-hi);
+  color: var(--ink);
+}
+
+.composer__stop:hover {
+  background: var(--line-hi);
+}
+
+/* --- Toast ---------------------------------------------------------------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: var(--s-6);
+  translate: -50% 0;
+  z-index: var(--z-drawer);
+  padding: var(--s-2) var(--s-4);
+  border-radius: 999px;
+  background: var(--surface-hi);
+  border: 1px solid var(--line-hi);
+  color: var(--ink);
+  font-size: var(--step--1);
+  animation: rise 240ms var(--ease);
 }
 
 /* ===========================================================================
@@ -559,6 +872,15 @@ body {
   }
 }
 
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes pulse {
   0%,
   60%,
@@ -572,6 +894,12 @@ body {
   }
 }
 
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -582,71 +910,103 @@ body {
     scroll-behavior: auto !important;
   }
 
-  /* The thinking indicator still has to read as "working". */
-  .thinking span {
+  .thinking__dots i {
     animation: none !important;
     opacity: 0.7;
+  }
+
+  .msg__body .caret {
+    animation: none !important;
   }
 }
 
 /* ===========================================================================
-   RESPONSIVE — structural, not fluid type
+   RESPONSIVE — structural
    =========================================================================== */
 
-@media (max-width: 820px) {
+@media (max-width: 1080px) {
+  .app {
+    grid-template-columns: 240px 1fr;
+  }
+
+  .transcript,
+  .chat__head {
+    padding-inline: var(--s-5);
+  }
+
+  .composer {
+    margin-inline: var(--s-5);
+  }
+}
+
+/* Phone / small tablet: the rail becomes a drawer. */
+@media (max-width: 860px) {
   .app {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
   }
 
   .rail {
-    flex-direction: row;
-    align-items: center;
-    gap: var(--s-4);
-    padding: var(--s-3) var(--s-4);
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-    overflow-x: auto;
-    overflow-y: hidden;
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(84vw, 300px);
+    z-index: var(--z-drawer);
+    transform: translateX(-100%);
+    transition: transform 260ms var(--ease);
   }
 
-  .rail__head,
-  .eras__label,
-  .caveat {
-    display: none;
+  .app[data-open="true"] .rail {
+    transform: none;
   }
 
-  .eras__list {
-    flex-direction: row;
-    gap: var(--s-2);
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-scrim);
+    background: oklch(0 0 0 / 0.5);
+    border: 0;
+    animation: fadeIn 200ms var(--ease);
   }
 
-  .era {
-    white-space: nowrap;
-    padding: var(--s-2) var(--s-3);
-  }
-
-  .era__years {
-    display: none;
-  }
-
-  .rail__foot {
-    margin-left: auto;
-  }
-
-  .reset {
-    white-space: nowrap;
+  .chat__menu {
+    display: grid;
   }
 
   .chat__head {
     padding: var(--s-3) var(--s-4);
   }
 
+  .now {
+    flex-direction: column;
+    gap: 0;
+    align-items: flex-start;
+  }
+
+  .now__era {
+    font-size: var(--step-1);
+  }
+
   .transcript {
     padding: var(--s-4);
+    gap: var(--s-4);
+  }
+
+  .msg--user {
+    max-width: 88%;
+  }
+
+  .msg__actions {
+    opacity: 1;
   }
 
   .composer {
     margin: 0 var(--s-4) var(--s-4);
+  }
+
+  .empty__title {
+    font-size: clamp(2rem, 10vw, 2.75rem);
+  }
+
+  .era-picker {
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   }
 }

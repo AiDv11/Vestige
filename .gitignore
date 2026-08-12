@@ -1,2 +1,5 @@
 node_modules/
 .env
+
+# SQLite database — local conversation history, not source
+data/

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-era="all">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -8,6 +8,12 @@
       name="description"
       content="A chat interface for history questions. Pick an era and the assistant adopts that period's expertise."
     />
+    <meta name="color-scheme" content="dark" />
+
+    <!-- Era display faces are fetched on demand by app.js, never on load.
+         Preconnecting means the handshake is already done when they are. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="style.css" />
     <link
       rel="icon"
@@ -15,9 +21,9 @@
     />
   </head>
   <body>
-    <div class="app">
-      <!-- ERA RAIL ------------------------------------------------------- -->
-      <aside class="rail">
+    <div class="app" data-app>
+      <!-- RAIL ------------------------------------------------------------ -->
+      <aside class="rail" data-rail>
         <div class="rail__head">
           <h1 class="brand">
             <span class="brand__mark" aria-hidden="true"></span>
@@ -25,17 +31,24 @@
           </h1>
         </div>
 
-        <nav class="eras" aria-label="Choose an era">
-          <p class="eras__label" id="eras-label">Era</p>
-          <div class="eras__list" role="radiogroup" aria-labelledby="eras-label">
-            <!-- populated by app.js from /api/eras -->
-          </div>
+        <button type="button" class="new-chat" data-new>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              d="M12 5v14M5 12h14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+          </svg>
+          New chat
+        </button>
+
+        <nav class="convos" data-convos aria-label="Your conversations">
+          <!-- injected by app.js -->
         </nav>
 
         <div class="rail__foot">
-          <button type="button" class="reset" data-reset>
-            Clear conversation
-          </button>
           <p class="caveat">
             Answers are generated. Dates and quotations can be wrong — verify
             anything that matters.
@@ -43,13 +56,51 @@
         </div>
       </aside>
 
-      <!-- CONVERSATION ---------------------------------------------------- -->
+      <div class="scrim" data-scrim hidden></div>
+
+      <!-- CHAT ------------------------------------------------------------ -->
       <main class="chat">
         <header class="chat__head">
+          <button
+            type="button"
+            class="icon-btn chat__menu"
+            data-menu
+            aria-label="Show conversations"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                d="M4 7h16M4 12h16M4 17h16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+
           <div class="now">
-            <span class="now__label" data-era-label>All History</span>
-            <span class="now__years" data-era-blurb>Anything, any period</span>
+            <span class="now__era" data-era-label>All History</span>
+            <span class="now__title" data-convo-title>New conversation</span>
           </div>
+
+          <button
+            type="button"
+            class="icon-btn"
+            data-delete
+            aria-label="Delete this conversation"
+            hidden
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13M10 11v6M14 11v6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
         </header>
 
         <div
@@ -59,7 +110,7 @@
           aria-live="polite"
           aria-label="Conversation"
         >
-          <!-- empty state + messages injected by app.js -->
+          <!-- injected by app.js -->
         </div>
 
         <form class="composer" data-form>
@@ -72,6 +123,19 @@
             placeholder="Ask a history question…"
             autocomplete="off"
           ></textarea>
+
+          <button
+            type="button"
+            class="composer__stop"
+            data-stop
+            hidden
+            aria-label="Stop generating"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" />
+            </svg>
+          </button>
+
           <button type="submit" class="composer__send" data-send>
             <span class="sr-only">Send</span>
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">

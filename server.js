@@ -1,140 +1,198 @@
 import "dotenv/config";
 import express from "express";
-import Groq from "groq-sdk";
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const MODEL = "openai/gpt-oss-120b";
-const PORT = process.env.PORT || 3000;
-
-// ---------------------------------------------------------------------------
-// ERAS
-// Each era is a persona: a label the UI shows, and a system prompt that
-// changes what the assistant knows and how it speaks. Swapping the era is
-// the entire "personality" mechanic — same model, different instructions.
-// ---------------------------------------------------------------------------
-
-const SHARED_RULES = `
-Answer in under 120 words unless asked for more. Lead with the direct answer,
-then context. Always give specific dates where they exist.
-If you are genuinely unsure of a date, figure, or attribution, say so in a
-short clause rather than guessing — do not invent precise-sounding details.
-Never invent quotations or citations.
-`.trim();
-
-const ERAS = {
-  all: {
-    label: "All History",
-    blurb: "Anything, any period",
-    system: `You are a historian with broad expertise across all periods and regions.
-When a question spans eras, say so and place it in context. ${SHARED_RULES}`,
-  },
-  rome: {
-    label: "Ancient Rome",
-    blurb: "753 BC – 476 AD",
-    system: `You are a specialist in Roman history, from the founding through the
-Republic, the Principate, and the fall of the West. You know the politics,
-the military, the constitution, and daily life. Use Roman terms (consul,
-princeps, legion, cursus honorum) and briefly gloss them. ${SHARED_RULES}`,
-  },
-  egypt: {
-    label: "Ancient Egypt",
-    blurb: "3100 – 30 BC",
-    system: `You are an Egyptologist. You know the dynasties, the pharaohs, religion
-and burial practice, hieroglyphs, and the Nile's role in Egyptian life. Give
-dynasty and kingdom (Old/Middle/New) alongside dates, and flag where Egyptian
-chronology is genuinely disputed rather than presenting one scheme as settled.
-${SHARED_RULES}`,
-  },
-  medieval: {
-    label: "Medieval Europe",
-    blurb: "476 – 1453",
-    system: `You are a medievalist covering Europe from the fall of Rome to the fall of
-Constantinople. Feudalism, the Church, the Crusades, plague, guilds and towns,
-and the dynastic wars. Push back on popular myths about the period when they
-come up — briefly, without lecturing. ${SHARED_RULES}`,
-  },
-  ww2: {
-    label: "World War II",
-    blurb: "1939 – 1945",
-    system: `You are a specialist in the Second World War: causes, campaigns and
-theatres, strategy and logistics, the home fronts, and the Holocaust. Be
-precise about dates, units, and figures. Treat atrocities with directness and
-gravity — never euphemism, never sensationalism. ${SHARED_RULES}`,
-  },
-};
-
-// ---------------------------------------------------------------------------
-// CONVERSATION MEMORY
-// One conversation per era, so switching eras doesn't scramble context.
-// Same idea as the array in index.js — just one array per era.
-// ---------------------------------------------------------------------------
-
-const conversations = new Map();
-
-function getConversation(eraId) {
-  if (!conversations.has(eraId)) {
-    conversations.set(eraId, [{ role: "system", content: ERAS[eraId].system }]);
-  }
-  return conversations.get(eraId);
-}
-
-// ---------------------------------------------------------------------------
-// SERVER
-// ---------------------------------------------------------------------------
+import { DEFAULT_ERA, isEra, publicEras } from "./lib/eras.js";
+import { generateTitle, streamReply } from "./lib/chat.js";
+import * as store from "./lib/db.js";
 
 const app = express();
-app.use(express.json());
-app.use(express.static("public"));
+const PORT = process.env.PORT || 3000;
 
-// The browser asks for the era list on load, so the UI is built from this
-// file rather than hardcoded in two places.
+app.use(express.json({ limit: "64kb" }));
+
+// ---------------------------------------------------------------------------
+// SESSIONS
+// A random id in a cookie. Not auth — it just means two browsers get two
+// separate sets of conversations instead of sharing one. Before this, every
+// visitor was reading the same chat.
+// ---------------------------------------------------------------------------
+
+const COOKIE = "hb_session";
+const YEAR = 60 * 60 * 24 * 365;
+
+function readCookie(header, name) {
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const [k, ...rest] = part.trim().split("=");
+    if (k === name) return decodeURIComponent(rest.join("="));
+  }
+  return null;
+}
+
+app.use((req, res, next) => {
+  let sid = readCookie(req.headers.cookie, COOKIE);
+
+  if (!sid || !/^[\w-]{10,64}$/.test(sid)) {
+    sid = crypto.randomUUID();
+    res.setHeader(
+      "Set-Cookie",
+      `${COOKIE}=${sid}; Path=/; Max-Age=${YEAR}; HttpOnly; SameSite=Lax`,
+    );
+  }
+
+  req.sessionId = sid;
+  next();
+});
+
+// ---------------------------------------------------------------------------
+// READ ROUTES
+// ---------------------------------------------------------------------------
+
 app.get("/api/eras", (req, res) => {
-  res.json(
-    Object.entries(ERAS).map(([id, era]) => ({
-      id,
-      label: era.label,
-      blurb: era.blurb,
-    })),
-  );
+  res.json(publicEras());
 });
 
-app.post("/api/chat", async (req, res) => {
-  const { message, era = "all" } = req.body;
-
-  if (!message || !message.trim()) {
-    return res.status(400).json({ error: "Message is empty." });
-  }
-  if (!ERAS[era]) {
-    return res.status(400).json({ error: `Unknown era: ${era}` });
-  }
-
-  const messages = getConversation(era);
-  messages.push({ role: "user", content: message });
-
-  try {
-    const response = await groq.chat.completions.create({
-      model: MODEL,
-      messages,
-    });
-
-    const reply = response.choices[0].message.content;
-    messages.push({ role: "assistant", content: reply });
-
-    res.json({ reply });
-  } catch (error) {
-    // Roll back the user message so a failed turn doesn't poison the history.
-    messages.pop();
-    console.error("Groq request failed:", error.message);
-    res.status(502).json({ error: "Couldn't reach the history archives. Try again." });
-  }
+app.get("/api/conversations", (req, res) => {
+  res.json(store.listConversations(req.sessionId));
 });
 
-app.post("/api/reset", (req, res) => {
-  const { era = "all" } = req.body;
-  conversations.delete(era);
+app.get("/api/conversations/:id", (req, res) => {
+  const conversation = store.getConversation(req.params.id, req.sessionId);
+  if (!conversation) return res.status(404).json({ error: "Not found." });
+
+  res.json({ conversation, messages: store.getMessages(conversation.id) });
+});
+
+// ---------------------------------------------------------------------------
+// WRITE ROUTES
+// ---------------------------------------------------------------------------
+
+app.post("/api/conversations", (req, res) => {
+  const era = req.body?.era ?? DEFAULT_ERA;
+  if (!isEra(era)) return res.status(400).json({ error: `Unknown era: ${era}` });
+
+  res.status(201).json(store.createConversation(req.sessionId, era));
+});
+
+app.patch("/api/conversations/:id", (req, res) => {
+  const conversation = store.getConversation(req.params.id, req.sessionId);
+  if (!conversation) return res.status(404).json({ error: "Not found." });
+
+  const title = String(req.body?.title ?? "").trim().slice(0, 60);
+  if (!title) return res.status(400).json({ error: "Title is empty." });
+
+  store.renameConversation(conversation.id, req.sessionId, title);
+  res.json({ ok: true, title });
+});
+
+app.delete("/api/conversations/:id", (req, res) => {
+  store.deleteConversation(req.params.id, req.sessionId);
   res.json({ ok: true });
 });
 
+// ---------------------------------------------------------------------------
+// STREAMING
+// Server-Sent Events: one long-lived HTTP response the server writes to as
+// tokens arrive. Simpler than WebSockets and the right fit here, because the
+// data only ever flows one way.
+// ---------------------------------------------------------------------------
+
+function openStream(res) {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no", // stops proxies buffering the stream
+  });
+  res.flushHeaders?.();
+}
+
+function sendEvent(res, payload) {
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+/** Shared by "send a message" and "regenerate" — both stream a reply for
+ *  whatever turns are currently stored. */
+async function streamInto(res, conversation, sessionId, { isFirstExchange, question }) {
+  const controller = new AbortController();
+  res.on("close", () => controller.abort());
+
+  let full = "";
+
+  try {
+    const turns = store.getMessages(conversation.id);
+
+    for await (const piece of streamReply(conversation.era, turns, {
+      signal: controller.signal,
+    })) {
+      full += piece;
+      sendEvent(res, { type: "delta", text: piece });
+    }
+
+    if (!full.trim()) throw new Error("The model returned an empty reply.");
+
+    store.addMessage(conversation.id, "assistant", full);
+
+    // Name the conversation from its opening question, once.
+    let title = null;
+    if (isFirstExchange) {
+      title = await generateTitle(question);
+      store.renameConversation(conversation.id, sessionId, title);
+    }
+
+    sendEvent(res, { type: "done", title });
+  } catch (error) {
+    if (controller.signal.aborted) return res.end();
+
+    console.error("Stream failed:", error.message);
+    // Partial text is still worth keeping — the user watched it appear.
+    if (full.trim()) store.addMessage(conversation.id, "assistant", full);
+    sendEvent(res, {
+      type: "error",
+      error: "Couldn't reach the archives. Try again.",
+    });
+  } finally {
+    res.end();
+  }
+}
+
+app.post("/api/conversations/:id/messages", async (req, res) => {
+  const conversation = store.getConversation(req.params.id, req.sessionId);
+  if (!conversation) return res.status(404).json({ error: "Not found." });
+
+  const message = String(req.body?.message ?? "").trim();
+  if (!message) return res.status(400).json({ error: "Message is empty." });
+
+  const isFirstExchange = store.getMessages(conversation.id).length === 0;
+  store.addMessage(conversation.id, "user", message);
+
+  openStream(res);
+  await streamInto(res, conversation, req.sessionId, {
+    isFirstExchange,
+    question: message,
+  });
+});
+
+app.post("/api/conversations/:id/regenerate", async (req, res) => {
+  const conversation = store.getConversation(req.params.id, req.sessionId);
+  if (!conversation) return res.status(404).json({ error: "Not found." });
+
+  const turns = store.getMessages(conversation.id);
+  if (turns.length === 0) {
+    return res.status(400).json({ error: "Nothing to regenerate." });
+  }
+
+  store.dropLastAssistantMessage(conversation.id);
+
+  openStream(res);
+  await streamInto(res, conversation, req.sessionId, { isFirstExchange: false });
+});
+
+// ---------------------------------------------------------------------------
+
+app.use(express.static("public"));
+
 app.listen(PORT, () => {
   console.log(`History bot running: http://localhost:${PORT}`);
+  console.log(`Database: ${store.DB_PATH}`);
 });

@@ -1,22 +1,44 @@
 // ===========================================================================
 // HISTORY BOT — client
-// Talks to the Express server in server.js. The server owns the conversation
-// memory; this file owns what's on screen.
+// The server owns storage and the model; this file owns what's on screen.
 // ===========================================================================
 
+const $ = (sel) => document.querySelector(sel);
+
 const els = {
-  eraList: document.querySelector(".eras__list"),
-  eraLabel: document.querySelector("[data-era-label]"),
-  eraBlurb: document.querySelector("[data-era-blurb]"),
-  transcript: document.querySelector("[data-transcript]"),
-  form: document.querySelector("[data-form]"),
-  input: document.querySelector("[data-input]"),
-  send: document.querySelector("[data-send]"),
-  reset: document.querySelector("[data-reset]"),
+  app: $("[data-app]"),
+  rail: $("[data-rail]"),
+  scrim: $("[data-scrim]"),
+  menu: $("[data-menu]"),
+  newChat: $("[data-new]"),
+  convos: $("[data-convos]"),
+  eraLabel: $("[data-era-label]"),
+  convoTitle: $("[data-convo-title]"),
+  deleteBtn: $("[data-delete]"),
+  transcript: $("[data-transcript]"),
+  form: $("[data-form]"),
+  input: $("[data-input]"),
+  send: $("[data-send]"),
+  stop: $("[data-stop]"),
 };
 
-// Suggested openers per era. These do real work: they teach what the era
-// mechanic actually changes, in the first few seconds.
+// Display face per era, fetched on first use — the initial page load costs
+// zero webfonts. "all" has no entry because it uses the system stack.
+const FONTS = {
+  rome: "Cormorant+Garamond:wght@700",
+  egypt: "Zilla+Slab:wght@600",
+  medieval: "Cardo:wght@700",
+  ww2: "Oswald:wght@600",
+};
+
+const THINKING = {
+  all: ["Consulting the archives", "Cross-referencing dates", "Checking the record"],
+  rome: ["Consulting the annals", "Checking the Fasti", "Reading the inscriptions"],
+  egypt: ["Reading the cartouches", "Checking the king lists", "Consulting the papyri"],
+  medieval: ["Turning the manuscript", "Consulting the chronicles", "Checking the rolls"],
+  ww2: ["Pulling the dispatches", "Reading the war diaries", "Checking the reports"],
+};
+
 const STARTERS = {
   all: [
     "What caused the Bronze Age collapse?",
@@ -45,86 +67,182 @@ const STARTERS = {
   ],
 };
 
-let eras = [];
-let currentEra = "all";
-// One visible transcript per era, so switching back doesn't lose the thread.
-const history = new Map();
-let busy = false;
+// --- state ------------------------------------------------------------------
 
-// --- rendering helpers ------------------------------------------------------
+const state = {
+  eras: [],
+  conversations: [],
+  /** null while composing a brand-new chat that hasn't been saved yet. */
+  currentId: null,
+  draftEra: "all",
+  messages: [],
+  busy: false,
+  controller: null,
+};
 
-/** Escape first, then apply a tiny subset of markdown. Never inject raw model
- *  output as HTML — this is the whole XSS surface of the app. */
-function format(text) {
-  const escaped = text
+const loadedFonts = new Set();
+
+const eraById = (id) => state.eras.find((e) => e.id === id);
+const activeEra = () =>
+  state.currentId
+    ? (state.conversations.find((c) => c.id === state.currentId)?.era ??
+      state.draftEra)
+    : state.draftEra;
+
+// --- fonts ------------------------------------------------------------------
+
+function loadEraFont(id) {
+  const spec = FONTS[id];
+  if (!spec || loadedFonts.has(id)) return;
+  loadedFonts.add(id);
+
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = `https://fonts.googleapis.com/css2?family=${spec}&display=swap`;
+  document.head.append(link);
+}
+
+// --- markdown ---------------------------------------------------------------
+
+/** Escape first, then apply a small subset of markdown. Model output is
+ *  untrusted text — this is the app's entire XSS surface. */
+function md(text) {
+  const safe = text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
-  return escaped
+  return safe
     .split(/\n{2,}/)
     .map((block) => {
-      const lines = block.split("\n");
-      const isList = lines.every((l) => /^\s*[-*]\s+/.test(l));
+      const lines = block.split("\n").filter((l) => l.trim() !== "");
+      if (lines.length === 0) return "";
 
-      if (isList) {
+      const heading = lines[0].match(/^(#{2,4})\s+(.*)$/);
+      if (heading && lines.length === 1) {
+        return `<h3>${inline(heading[2])}</h3>`;
+      }
+
+      if (lines.every((l) => /^\s*[-*]\s+/.test(l))) {
         const items = lines
           .map((l) => `<li>${inline(l.replace(/^\s*[-*]\s+/, ""))}</li>`)
           .join("");
         return `<ul>${items}</ul>`;
       }
+
+      if (lines.every((l) => /^\s*\d+[.)]\s+/.test(l))) {
+        const items = lines
+          .map((l) => `<li>${inline(l.replace(/^\s*\d+[.)]\s+/, ""))}</li>`)
+          .join("");
+        return `<ol>${items}</ol>`;
+      }
+
       return `<p>${inline(lines.join("<br>"))}</p>`;
     })
     .join("");
 }
 
 function inline(s) {
-  return s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  return s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>");
 }
+
+// --- small helpers ----------------------------------------------------------
 
 function scrollToEnd() {
   els.transcript.scrollTop = els.transcript.scrollHeight;
 }
 
-function renderEmpty() {
-  const era = eras.find((e) => e.id === currentEra);
-  const wrap = document.createElement("div");
-  wrap.className = "empty";
-  wrap.innerHTML = `
-    <h2 class="empty__title">${era ? era.label : "History"}</h2>
-    <p class="empty__sub">
-      Ask anything about this period. Follow-up questions keep their context —
-      ask “when did he die?” and it'll know who you mean.
-    </p>
-    <p class="empty__label">Try one</p>
-    <div class="starters"></div>
-  `;
-
-  const row = wrap.querySelector(".starters");
-  (STARTERS[currentEra] || []).forEach((q) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "starter";
-    b.textContent = q;
-    b.addEventListener("click", () => send(q));
-    row.append(b);
-  });
-
-  els.transcript.append(wrap);
+/** Only autoscroll if the user hasn't deliberately scrolled up to read. */
+function isPinnedToBottom() {
+  const { scrollTop, scrollHeight, clientHeight } = els.transcript;
+  return scrollHeight - scrollTop - clientHeight < 120;
 }
 
-function renderTranscript() {
-  els.transcript.replaceChildren();
-  const log = history.get(currentEra) || [];
+function toast(message) {
+  document.querySelector(".toast")?.remove();
+  const el = document.createElement("div");
+  el.className = "toast";
+  el.role = "status";
+  el.textContent = message;
+  document.body.append(el);
+  setTimeout(() => el.remove(), 2200);
+}
 
-  if (log.length === 0) {
-    renderEmpty();
+function applyEra(id) {
+  document.documentElement.dataset.era = id;
+  loadEraFont(id);
+  const era = eraById(id);
+  if (era) els.eraLabel.textContent = era.label;
+}
+
+function closeDrawer() {
+  els.app.dataset.open = "false";
+  els.scrim.hidden = true;
+}
+
+// --- conversation list ------------------------------------------------------
+
+function groupOf(ts) {
+  const day = 86_400_000;
+  const midnight = new Date().setHours(0, 0, 0, 0);
+  if (ts >= midnight) return "Today";
+  if (ts >= midnight - day) return "Yesterday";
+  if (ts >= midnight - day * 7) return "Previous 7 days";
+  return "Older";
+}
+
+function renderConversations() {
+  els.convos.replaceChildren();
+
+  if (state.conversations.length === 0) {
+    const p = document.createElement("p");
+    p.className = "convos__empty";
+    p.textContent = "No conversations yet.";
+    els.convos.append(p);
     return;
   }
 
-  log.forEach((m) => els.transcript.append(buildMessage(m)));
-  scrollToEnd();
+  const groups = new Map();
+  for (const c of state.conversations) {
+    const key = groupOf(c.updated_at);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(c);
+  }
+
+  for (const [label, items] of groups) {
+    const group = document.createElement("section");
+    group.className = "convo-group";
+
+    const h = document.createElement("p");
+    h.className = "convo-group__label";
+    h.textContent = label;
+    group.append(h);
+
+    for (const c of items) {
+      const era = eraById(c.era);
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "convo";
+      b.dataset.era = c.era;
+      b.setAttribute("aria-current", String(c.id === state.currentId));
+      b.title = `${c.title} — ${era ? era.label : c.era}`;
+      b.innerHTML = `
+        <span class="convo__dot" aria-hidden="true"></span>
+        <span class="convo__title"></span>
+      `;
+      b.querySelector(".convo__title").textContent = c.title;
+      b.addEventListener("click", () => openConversation(c.id));
+      group.append(b);
+    }
+
+    els.convos.append(group);
+  }
 }
+
+// --- transcript -------------------------------------------------------------
 
 function buildMessage({ role, content }) {
   const el = document.createElement("div");
@@ -141,127 +259,346 @@ function buildMessage({ role, content }) {
     return el;
   }
 
-  const era = eras.find((e) => e.id === currentEra);
+  const era = eraById(activeEra());
   el.className = "msg msg--bot";
   el.innerHTML = `
     <p class="msg__who">${era ? era.label : "History"}</p>
-    <div class="msg__body">${format(content)}</div>
+    <div class="msg__body"></div>
+    <div class="msg__actions">
+      <button type="button" class="act" data-copy>Copy</button>
+      <button type="button" class="act" data-regen>Regenerate</button>
+    </div>
   `;
+  el.querySelector(".msg__body").innerHTML = md(content);
+  el.querySelector("[data-copy]").addEventListener("click", async () => {
+    await navigator.clipboard.writeText(content);
+    toast("Copied");
+  });
+  el.querySelector("[data-regen]").addEventListener("click", () => regenerate());
   return el;
 }
 
-// --- era switching ----------------------------------------------------------
+function renderEmpty() {
+  const wrap = document.createElement("div");
+  wrap.className = "empty";
+  wrap.innerHTML = `
+    <h2 class="empty__title">Ask the past</h2>
+    <p class="empty__sub">
+      Pick an era and the assistant takes on that period's expertise. Follow-up
+      questions keep their context — ask “when did he die?” and it'll know who
+      you mean.
+    </p>
+    <p class="empty__label">Era</p>
+    <div class="era-picker"></div>
+    <p class="empty__label">Try one</p>
+    <div class="starters"></div>
+  `;
 
-function renderEras() {
-  els.eraList.replaceChildren();
-
-  eras.forEach((era, i) => {
+  const picker = wrap.querySelector(".era-picker");
+  state.eras.forEach((era) => {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "era";
-    b.role = "radio";
-    b.setAttribute("aria-checked", String(era.id === currentEra));
-    // Roving tabindex: one stop for the whole group, arrows move within it.
-    b.tabIndex = era.id === currentEra ? 0 : -1;
-    b.dataset.era = era.id;
+    b.className = "era-opt";
+    b.setAttribute("aria-pressed", String(era.id === state.draftEra));
     b.innerHTML = `
-      <span class="era__name">${era.label}</span>
-      <span class="era__years">${era.blurb}</span>
+      <span class="era-opt__name">${era.label}</span>
+      <span class="era-opt__years">${era.blurb}</span>
     `;
-    b.addEventListener("click", () => selectEra(era.id));
-    b.addEventListener("keydown", (e) => onEraKey(e, i));
-    els.eraList.append(b);
+    // Hovering previews the era's colour before you commit to it.
+    b.addEventListener("pointerenter", () => {
+      loadEraFont(era.id);
+      document.documentElement.dataset.era = era.id;
+    });
+    b.addEventListener("pointerleave", () => {
+      document.documentElement.dataset.era = state.draftEra;
+    });
+    b.addEventListener("click", () => {
+      state.draftEra = era.id;
+      applyEra(era.id);
+      renderTranscript();
+    });
+    picker.append(b);
   });
+
+  const row = wrap.querySelector(".starters");
+  (STARTERS[state.draftEra] || []).forEach((q) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "starter";
+    b.textContent = q;
+    b.addEventListener("click", () => send(q));
+    row.append(b);
+  });
+
+  els.transcript.append(wrap);
 }
 
-function onEraKey(e, index) {
-  const keys = {
-    ArrowDown: 1,
-    ArrowRight: 1,
-    ArrowUp: -1,
-    ArrowLeft: -1,
+function renderTranscript() {
+  els.transcript.replaceChildren();
+
+  if (state.messages.length === 0) {
+    renderEmpty();
+    return;
+  }
+
+  state.messages.forEach((m) => els.transcript.append(buildMessage(m)));
+  scrollToEnd();
+}
+
+function renderHeader() {
+  const convo = state.conversations.find((c) => c.id === state.currentId);
+  els.convoTitle.textContent = convo ? convo.title : "New conversation";
+  els.deleteBtn.hidden = !state.currentId;
+  applyEra(activeEra());
+}
+
+// --- thinking indicator -----------------------------------------------------
+
+function showThinking() {
+  const lines = THINKING[activeEra()] || THINKING.all;
+  let i = 0;
+
+  const el = document.createElement("div");
+  el.className = "thinking";
+  el.innerHTML = `
+    <span class="thinking__dots"><i></i><i></i><i></i></span>
+    <span class="thinking__text"></span>
+  `;
+  const label = el.querySelector(".thinking__text");
+  label.textContent = `${lines[0]}…`;
+  els.transcript.append(el);
+  scrollToEnd();
+
+  const timer = setInterval(() => {
+    i = (i + 1) % lines.length;
+    label.textContent = `${lines[i]}…`;
+    label.style.animation = "none";
+    void label.offsetWidth;
+    label.style.animation = "";
+  }, 2400);
+
+  return () => {
+    clearInterval(timer);
+    el.remove();
   };
-  const step = keys[e.key];
-  if (!step) return;
-
-  e.preventDefault();
-  const next = (index + step + eras.length) % eras.length;
-  selectEra(eras[next].id);
-  els.eraList.children[next].focus();
 }
 
-function selectEra(id) {
-  if (id === currentEra) return;
-  currentEra = id;
+// --- server calls -----------------------------------------------------------
 
-  const era = eras.find((e) => e.id === id);
-  document.documentElement.dataset.era = id;
-  els.eraLabel.textContent = era.label;
-  els.eraBlurb.textContent = era.blurb;
-
-  [...els.eraList.children].forEach((b) => {
-    const on = b.dataset.era === id;
-    b.setAttribute("aria-checked", String(on));
-    b.tabIndex = on ? 0 : -1;
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
   });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Request failed.");
+  return res.json();
+}
 
+async function refreshConversations() {
+  state.conversations = await api("/api/conversations");
+  renderConversations();
+}
+
+async function openConversation(id) {
+  if (state.busy) return;
+
+  const { conversation, messages } = await api(`/api/conversations/${id}`);
+  state.currentId = conversation.id;
+  state.messages = messages;
+  state.draftEra = conversation.era;
+
+  renderHeader();
+  renderConversations();
   renderTranscript();
+  closeDrawer();
   els.input.focus();
 }
 
-// --- sending ----------------------------------------------------------------
+function startNewChat() {
+  if (state.busy) return;
+  state.currentId = null;
+  state.messages = [];
+  renderHeader();
+  renderConversations();
+  renderTranscript();
+  closeDrawer();
+  els.input.focus();
+}
+
+// --- streaming --------------------------------------------------------------
+
+/** Read an SSE body frame by frame. EventSource only does GET, and these are
+ *  POSTs, so the stream is parsed by hand. */
+async function readStream(res, onEvent) {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+
+    for (const frame of frames) {
+      const line = frame.split("\n").find((l) => l.startsWith("data: "));
+      if (!line) continue;
+      try {
+        onEvent(JSON.parse(line.slice(6)));
+      } catch {
+        /* ignore malformed frame */
+      }
+    }
+  }
+}
 
 async function send(text) {
-  const message = text.trim();
-  if (!message || busy) return;
+  const message = String(text ?? "").trim();
+  if (!message || state.busy) return;
 
-  busy = true;
-  els.send.disabled = true;
   els.input.value = "";
 
-  const log = history.get(currentEra) || [];
-  log.push({ role: "user", content: message });
-  history.set(currentEra, log);
+  // A brand-new chat isn't saved until the first message — so the sidebar
+  // never fills with empty conversations.
+  if (!state.currentId) {
+    try {
+      const convo = await api("/api/conversations", {
+        method: "POST",
+        body: JSON.stringify({ era: state.draftEra }),
+      });
+      state.currentId = convo.id;
+      state.conversations.unshift(convo);
+    } catch (err) {
+      els.transcript.append(
+        buildMessage({ role: "error", content: err.message }),
+      );
+      return;
+    }
+  }
 
-  // If the empty state is showing, clear it before the first message.
   if (els.transcript.querySelector(".empty")) els.transcript.replaceChildren();
 
+  state.messages.push({ role: "user", content: message });
   els.transcript.append(buildMessage({ role: "user", content: message }));
   scrollToEnd();
+  renderHeader();
 
-  const thinking = document.createElement("div");
-  thinking.className = "thinking";
-  thinking.innerHTML = "<span></span><span></span><span></span>";
-  els.transcript.append(thinking);
-  scrollToEnd();
+  await stream(`/api/conversations/${state.currentId}/messages`, { message });
+}
+
+/** POST a request that replies with an SSE stream, then render it. */
+async function stream(url, payload) {
+  state.controller = new AbortController();
 
   try {
-    const res = await fetch("/api/chat", {
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, era: currentEra }),
+      body: JSON.stringify(payload),
+      signal: state.controller.signal,
     });
 
-    const data = await res.json();
-    thinking.remove();
+    if (!res.ok || !res.body) {
+      const { error } = await res.json().catch(() => ({}));
+      throw new Error(error || "Couldn't start the reply.");
+    }
 
-    if (!res.ok) throw new Error(data.error || "Request failed.");
-
-    log.push({ role: "assistant", content: data.reply });
-    els.transcript.append(
-      buildMessage({ role: "assistant", content: data.reply }),
-    );
+    await consume(res);
   } catch (err) {
-    thinking.remove();
-    const msg = err.message || "Something went wrong.";
-    log.push({ role: "error", content: msg });
-    els.transcript.append(buildMessage({ role: "error", content: msg }));
-  } finally {
-    busy = false;
-    els.send.disabled = false;
-    scrollToEnd();
-    els.input.focus();
+    state.controller = null;
+    if (err.name !== "AbortError") {
+      els.transcript.append(
+        buildMessage({ role: "error", content: err.message }),
+      );
+      scrollToEnd();
+    }
   }
+}
+
+/** Shared stream consumer for both send and regenerate. */
+async function consume(res) {
+  state.busy = true;
+  els.send.disabled = true;
+  els.stop.hidden = false;
+
+  const stopThinking = showThinking();
+  let bubble = null;
+  let body = null;
+  let text = "";
+
+  const ensureBubble = () => {
+    if (bubble) return;
+    stopThinking();
+    bubble = buildMessage({ role: "assistant", content: "" });
+    body = bubble.querySelector(".msg__body");
+    els.transcript.append(bubble);
+  };
+
+  try {
+    await readStream(res, (evt) => {
+      if (evt.type === "delta") {
+        ensureBubble();
+        text += evt.text;
+        const pinned = isPinnedToBottom();
+        body.innerHTML = md(text) + '<span class="caret"></span>';
+        if (pinned) scrollToEnd();
+      } else if (evt.type === "done") {
+        ensureBubble();
+        body.innerHTML = md(text);
+        state.messages.push({ role: "assistant", content: text });
+        if (evt.title) {
+          const convo = state.conversations.find(
+            (c) => c.id === state.currentId,
+          );
+          if (convo) convo.title = evt.title;
+          renderHeader();
+          renderConversations();
+        }
+      } else if (evt.type === "error") {
+        stopThinking();
+        bubble?.remove();
+        els.transcript.append(
+          buildMessage({ role: "error", content: evt.error }),
+        );
+      }
+    });
+  } catch (err) {
+    if (err.name === "AbortError") {
+      if (body) body.innerHTML = md(text);
+      if (text) state.messages.push({ role: "assistant", content: text });
+    } else {
+      bubble?.remove();
+      els.transcript.append(
+        buildMessage({ role: "error", content: err.message }),
+      );
+    }
+  } finally {
+    stopThinking();
+    state.busy = false;
+    state.controller = null;
+    els.send.disabled = false;
+    els.stop.hidden = true;
+    if (isPinnedToBottom()) scrollToEnd();
+    refreshConversations().catch(() => {});
+  }
+}
+
+async function regenerate() {
+  if (state.busy || !state.currentId) return;
+
+  // Drop the last assistant turn locally, then ask the server to redo it.
+  const lastBot = [...els.transcript.querySelectorAll(".msg--bot")].pop();
+  lastBot?.remove();
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    if (state.messages[i].role === "assistant") {
+      state.messages.splice(i, 1);
+      break;
+    }
+  }
+
+  await stream(`/api/conversations/${state.currentId}/regenerate`, {});
 }
 
 // --- events -----------------------------------------------------------------
@@ -271,7 +608,6 @@ els.form.addEventListener("submit", (e) => {
   send(els.input.value);
 });
 
-// Enter sends, Shift+Enter makes a new line.
 els.input.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
@@ -279,29 +615,49 @@ els.input.addEventListener("keydown", (e) => {
   }
 });
 
-els.reset.addEventListener("click", async () => {
-  await fetch("/api/reset", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ era: currentEra }),
-  });
-  history.set(currentEra, []);
-  renderTranscript();
-  els.input.focus();
+els.stop.addEventListener("click", () => state.controller?.abort());
+
+els.newChat.addEventListener("click", startNewChat);
+
+els.deleteBtn.addEventListener("click", async () => {
+  if (!state.currentId) return;
+  await fetch(`/api/conversations/${state.currentId}`, { method: "DELETE" });
+  state.conversations = state.conversations.filter(
+    (c) => c.id !== state.currentId,
+  );
+  toast("Conversation deleted");
+  startNewChat();
+});
+
+els.menu.addEventListener("click", () => {
+  const open = els.app.dataset.open === "true";
+  els.app.dataset.open = String(!open);
+  els.scrim.hidden = open;
+});
+
+els.scrim.addEventListener("click", closeDrawer);
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeDrawer();
 });
 
 // --- boot -------------------------------------------------------------------
 
 async function init() {
   try {
-    const res = await fetch("/api/eras");
-    eras = await res.json();
+    [state.eras, state.conversations] = await Promise.all([
+      api("/api/eras"),
+      api("/api/conversations"),
+    ]);
   } catch {
-    eras = [{ id: "all", label: "All History", blurb: "Anything, any period" }];
+    state.eras = [
+      { id: "all", label: "All History", blurb: "Anything, any period" },
+    ];
+    state.conversations = [];
   }
 
-  document.documentElement.dataset.era = currentEra;
-  renderEras();
+  renderConversations();
+  renderHeader();
   renderTranscript();
   els.input.focus();
 }
