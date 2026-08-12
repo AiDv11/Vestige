@@ -1,10 +1,15 @@
 {
   "name": "history-bot",
   "version": "1.0.0",
+  "description": "A chat interface for history questions, with per-era personas.",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "start": "node index.js",
-    "server": "node server.js"
+    "start": "node server.js",
+    "server": "node server.js",
+    "cli": "node index.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

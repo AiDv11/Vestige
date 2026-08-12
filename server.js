@@ -3,11 +3,14 @@ import express from "express";
 
 import { DEFAULT_ERA, isEra, publicEras } from "./lib/eras.js";
 import { generateTitle, streamReply } from "./lib/chat.js";
+import { rateLimit } from "./lib/rateLimit.js";
 import * as store from "./lib/db.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Behind a host's proxy, req.ip is the proxy unless this is set.
+app.set("trust proxy", 1);
 app.use(express.json({ limit: "64kb" }));
 
 // ---------------------------------------------------------------------------
@@ -45,8 +48,32 @@ app.use((req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
+// LIMITS
+// The model calls are what cost money, so they get the tight limit. Creating
+// conversations is cheap but worth bounding so nobody fills the database.
+// ---------------------------------------------------------------------------
+
+const askLimit = rateLimit({
+  windowMs: 60_000,
+  max: 12,
+  message: "That's a lot of questions at once. Give it a minute.",
+});
+
+const writeLimit = rateLimit({
+  windowMs: 60_000,
+  max: 30,
+  message: "Too many requests. Give it a minute.",
+});
+
+// ---------------------------------------------------------------------------
 // READ ROUTES
 // ---------------------------------------------------------------------------
+
+// Hosts ping this to know the process is alive; it must stay dependency-free
+// and fast, so it deliberately touches nothing.
+app.get("/healthz", (req, res) => {
+  res.json({ ok: true });
+});
 
 app.get("/api/eras", (req, res) => {
   res.json(publicEras());
@@ -67,7 +94,7 @@ app.get("/api/conversations/:id", (req, res) => {
 // WRITE ROUTES
 // ---------------------------------------------------------------------------
 
-app.post("/api/conversations", (req, res) => {
+app.post("/api/conversations", writeLimit, (req, res) => {
   const era = req.body?.era ?? DEFAULT_ERA;
   if (!isEra(era)) return res.status(400).json({ error: `Unknown era: ${era}` });
 
@@ -156,7 +183,7 @@ async function streamInto(res, conversation, sessionId, { isFirstExchange, quest
   }
 }
 
-app.post("/api/conversations/:id/messages", async (req, res) => {
+app.post("/api/conversations/:id/messages", askLimit, async (req, res) => {
   const conversation = store.getConversation(req.params.id, req.sessionId);
   if (!conversation) return res.status(404).json({ error: "Not found." });
 
@@ -173,7 +200,7 @@ app.post("/api/conversations/:id/messages", async (req, res) => {
   });
 });
 
-app.post("/api/conversations/:id/regenerate", async (req, res) => {
+app.post("/api/conversations/:id/regenerate", askLimit, async (req, res) => {
   const conversation = store.getConversation(req.params.id, req.sessionId);
   if (!conversation) return res.status(404).json({ error: "Not found." });
 

@@ -1,0 +1,17 @@
+# Render deployment config.
+# Connect the repo at https://render.com and it reads this file.
+# GROQ_API_KEY is marked sync:false — set it in the dashboard, never here.
+
+services:
+  - type: web
+    name: history-bot
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: NODE_VERSION
+        value: "22"

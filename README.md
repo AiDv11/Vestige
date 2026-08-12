@@ -127,6 +127,25 @@ change to one file.
 
 ---
 
+## Deploying
+
+`render.yaml` is checked in, so connecting the repo at
+[render.com](https://render.com) is enough — it reads the config, installs, and
+runs `npm start`. Set `GROQ_API_KEY` in the dashboard (it's marked `sync: false`
+so it never lives in the repo).
+
+Two things to know about the free tier: the service **sleeps after ~15 minutes**
+of inactivity, so the first request after a quiet spell takes about a minute;
+and the filesystem is **ephemeral**, so saved conversations reset whenever the
+instance restarts. Both are fine for a demo. A paid instance with a persistent
+disk fixes both.
+
+Because the deployed key is reachable by anyone with the URL, `/api/.../messages`
+and `/api/.../regenerate` are capped at 12 requests per minute per visitor
+(`lib/rateLimit.js`).
+
+---
+
 ## Design notes
 
 The obvious visual direction for a history app is parchment, sepia and serifs.
