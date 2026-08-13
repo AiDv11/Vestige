@@ -20,6 +20,11 @@ const els = {
   input: $("[data-input]"),
   send: $("[data-send]"),
   stop: $("[data-stop]"),
+  menuPop: $("[data-menu-pop]"),
+  confirm: $("[data-confirm]"),
+  confirmName: $("[data-confirm-name]"),
+  confirmOk: $("[data-confirm-ok]"),
+  confirmCancel: $("[data-confirm-cancel]"),
 };
 
 // Display face per era, fetched on first use — the initial page load costs
@@ -222,24 +227,197 @@ function renderConversations() {
     group.append(h);
 
     for (const c of items) {
-      const era = eraById(c.era);
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "convo";
-      b.dataset.era = c.era;
-      b.setAttribute("aria-current", String(c.id === state.currentId));
-      b.title = `${c.title} — ${era ? era.label : c.era}`;
-      b.innerHTML = `
-        <span class="convo__dot" aria-hidden="true"></span>
-        <span class="convo__title"></span>
-      `;
-      b.querySelector(".convo__title").textContent = c.title;
-      b.addEventListener("click", () => openConversation(c.id));
-      group.append(b);
+      group.append(buildConvoRow(c));
     }
 
     els.convos.append(group);
   }
+}
+
+/** One row in the sidebar: era dot, title, and a ⋯ menu button.
+ *  The row is a <div> rather than a <button> because it contains its own
+ *  button — nesting buttons is invalid HTML and breaks keyboard behaviour. */
+function buildConvoRow(c) {
+  const era = eraById(c.era);
+  const row = document.createElement("div");
+  row.className = "convo";
+  row.dataset.era = c.era;
+  row.dataset.id = c.id;
+  row.setAttribute("aria-current", String(c.id === state.currentId));
+
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "convo__open";
+  open.title = `${c.title} — ${era ? era.label : c.era}`;
+  open.innerHTML = `
+    <span class="convo__dot" aria-hidden="true"></span>
+    <span class="convo__title"></span>
+  `;
+  open.querySelector(".convo__title").textContent = c.title;
+  open.addEventListener("click", () => openConversation(c.id));
+
+  const more = document.createElement("button");
+  more.type = "button";
+  more.className = "convo__more";
+  more.setAttribute("aria-haspopup", "menu");
+  more.setAttribute("aria-expanded", "false");
+  more.setAttribute("aria-label", `Options for ${c.title}`);
+  more.innerHTML = `
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <circle cx="5" cy="12" r="1.6" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+      <circle cx="19" cy="12" r="1.6" fill="currentColor" />
+    </svg>
+  `;
+  more.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openRowMenu(more, c);
+  });
+
+  row.append(open, more);
+  return row;
+}
+
+// --- row menu ---------------------------------------------------------------
+
+let menuFor = null;
+
+function openRowMenu(button, conversation) {
+  if (menuFor?.id === conversation.id) return closeRowMenu();
+
+  closeRowMenu();
+  menuFor = conversation;
+
+  els.menuPop.hidden = false;
+  button.setAttribute("aria-expanded", "true");
+  button.closest(".convo")?.setAttribute("data-menu-open", "true");
+
+  // Position with fixed coords so the scrolling sidebar can't clip it, and
+  // flip up / clamp left when it would run off screen.
+  const r = button.getBoundingClientRect();
+  const m = els.menuPop.getBoundingClientRect();
+  const gap = 6;
+
+  const top =
+    r.bottom + gap + m.height > window.innerHeight
+      ? Math.max(gap, r.top - m.height - gap)
+      : r.bottom + gap;
+
+  const left = Math.min(
+    Math.max(gap, r.right - m.width),
+    window.innerWidth - m.width - gap,
+  );
+
+  els.menuPop.style.top = `${top}px`;
+  els.menuPop.style.left = `${left}px`;
+  els.menuPop.querySelector(".menu__item")?.focus();
+}
+
+function closeRowMenu() {
+  if (els.menuPop.hidden) return;
+  els.menuPop.hidden = true;
+  menuFor = null;
+  document
+    .querySelectorAll('.convo[data-menu-open="true"]')
+    .forEach((el) => el.removeAttribute("data-menu-open"));
+  document
+    .querySelectorAll('.convo__more[aria-expanded="true"]')
+    .forEach((el) => el.setAttribute("aria-expanded", "false"));
+}
+
+/** Swap the title for an input, in place. Enter or blur saves, Escape cancels. */
+function startRename(conversation) {
+  const row = els.convos.querySelector(`.convo[data-id="${conversation.id}"]`);
+  const titleEl = row?.querySelector(".convo__title");
+  if (!titleEl) return;
+
+  const input = document.createElement("input");
+  input.className = "convo__rename";
+  input.value = conversation.title;
+  input.maxLength = 60;
+  input.setAttribute("aria-label", "Conversation name");
+
+  titleEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let settled = false;
+
+  const finish = async (save) => {
+    if (settled) return;
+    settled = true;
+
+    const next = input.value.trim().slice(0, 60);
+
+    if (save && next && next !== conversation.title) {
+      conversation.title = next;
+      renderConversations();
+      if (conversation.id === state.currentId) renderHeader();
+      try {
+        await api(`/api/conversations/${conversation.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ title: next }),
+        });
+      } catch {
+        toast("Couldn't rename that");
+        refreshConversations().catch(() => {});
+      }
+    } else {
+      renderConversations();
+    }
+  };
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      finish(true);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
+}
+
+/** Native <dialog>, so Escape and focus trapping come for free. */
+function askToDelete(conversation) {
+  els.confirmName.textContent = conversation.title;
+  els.confirm.showModal();
+
+  return new Promise((resolve) => {
+    const done = (answer) => {
+      els.confirm.close();
+      els.confirmOk.removeEventListener("click", onOk);
+      els.confirmCancel.removeEventListener("click", onCancel);
+      els.confirm.removeEventListener("close", onCancel);
+      resolve(answer);
+    };
+    const onOk = () => done(true);
+    const onCancel = () => done(false);
+
+    els.confirmOk.addEventListener("click", onOk);
+    els.confirmCancel.addEventListener("click", onCancel);
+    els.confirm.addEventListener("close", onCancel);
+  });
+}
+
+async function deleteConversation(conversation) {
+  if (!(await askToDelete(conversation))) return;
+
+  try {
+    await fetch(`/api/conversations/${conversation.id}`, { method: "DELETE" });
+  } catch {
+    toast("Couldn't delete that");
+    return;
+  }
+
+  state.conversations = state.conversations.filter(
+    (c) => c.id !== conversation.id,
+  );
+  toast("Conversation deleted");
+
+  if (conversation.id === state.currentId) startNewChat();
+  else renderConversations();
 }
 
 // --- transcript -------------------------------------------------------------
@@ -619,15 +797,49 @@ els.stop.addEventListener("click", () => state.controller?.abort());
 
 els.newChat.addEventListener("click", startNewChat);
 
-els.deleteBtn.addEventListener("click", async () => {
-  if (!state.currentId) return;
-  await fetch(`/api/conversations/${state.currentId}`, { method: "DELETE" });
-  state.conversations = state.conversations.filter(
-    (c) => c.id !== state.currentId,
-  );
-  toast("Conversation deleted");
-  startNewChat();
+els.deleteBtn.addEventListener("click", () => {
+  const convo = state.conversations.find((c) => c.id === state.currentId);
+  if (convo) deleteConversation(convo);
 });
+
+// --- row menu wiring --------------------------------------------------------
+
+els.menuPop.addEventListener("click", (e) => {
+  const action = e.target.closest("[data-act]")?.dataset.act;
+  if (!action || !menuFor) return;
+
+  const conversation = menuFor;
+  closeRowMenu();
+
+  if (action === "rename") startRename(conversation);
+  if (action === "delete") deleteConversation(conversation);
+});
+
+// Arrow keys move between the two items; Escape returns to the list.
+els.menuPop.addEventListener("keydown", (e) => {
+  const items = [...els.menuPop.querySelectorAll(".menu__item")];
+  const i = items.indexOf(document.activeElement);
+
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    const step = e.key === "ArrowDown" ? 1 : -1;
+    items[(i + step + items.length) % items.length].focus();
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    closeRowMenu();
+  }
+});
+
+document.addEventListener("click", (e) => {
+  if (!els.menuPop.hidden && !e.target.closest("[data-menu-pop]")) {
+    closeRowMenu();
+  }
+});
+
+// A fixed-position menu doesn't follow its button, so dismiss it on scroll
+// and resize rather than letting it drift.
+els.convos.addEventListener("scroll", closeRowMenu, { passive: true });
+window.addEventListener("resize", closeRowMenu);
 
 els.menu.addEventListener("click", () => {
   const open = els.app.dataset.open === "true";
@@ -638,7 +850,9 @@ els.menu.addEventListener("click", () => {
 els.scrim.addEventListener("click", closeDrawer);
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeDrawer();
+  if (e.key !== "Escape") return;
+  if (!els.menuPop.hidden) closeRowMenu();
+  else closeDrawer();
 });
 
 // --- boot -------------------------------------------------------------------

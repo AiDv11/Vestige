@@ -153,6 +153,56 @@
       </main>
     </div>
 
+    <!-- Row menu. Lives at body level, positioned with `fixed`, because the
+         sidebar scrolls — an absolutely positioned menu would be clipped. -->
+    <div class="menu" data-menu-pop role="menu" hidden>
+      <button type="button" class="menu__item" role="menuitem" data-act="rename">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path
+            d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        Rename
+      </button>
+      <button
+        type="button"
+        class="menu__item menu__item--danger"
+        role="menuitem"
+        data-act="delete"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path
+            d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13M10 11v6M14 11v6"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        Delete
+      </button>
+    </div>
+
+    <dialog class="confirm" data-confirm>
+      <h2 class="confirm__title">Delete this conversation?</h2>
+      <p class="confirm__body">
+        <strong data-confirm-name></strong> and all its messages will be
+        permanently removed. This can't be undone.
+      </p>
+      <div class="confirm__actions">
+        <button type="button" class="btn" data-confirm-cancel>Cancel</button>
+        <button type="button" class="btn btn--danger" data-confirm-ok>
+          Delete
+        </button>
+      </div>
+    </dialog>
+
     <script src="app.js" type="module"></script>
   </body>
 </html>

@@ -293,24 +293,23 @@ button {
   color: var(--ink-low);
 }
 
+/* A row, not a button — it contains its own ⋯ button, and nesting buttons is
+   invalid HTML. */
 .convo {
   display: flex;
   align-items: center;
-  gap: var(--s-3);
+  gap: var(--s-2);
   width: 100%;
   padding: var(--s-2) var(--s-3);
-  border: 0;
   border-radius: var(--r-md);
-  background: none;
   color: var(--ink-mid);
-  text-align: left;
-  cursor: pointer;
   transition:
     background var(--dur) var(--ease),
     color var(--dur) var(--ease);
 }
 
-.convo:hover {
+.convo:hover,
+.convo:focus-within {
   background: var(--surface-hi);
   color: var(--ink);
 }
@@ -318,6 +317,20 @@ button {
 .convo[aria-current="true"] {
   background: color-mix(in oklch, var(--accent) 15%, transparent);
   color: var(--ink);
+}
+
+.convo__open {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 /* Era is signalled by a dot AND the title's tooltip — never colour alone. */
@@ -354,6 +367,64 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--step--1);
+}
+
+/* The ⋯ button. Hidden until the row is hovered or focused, so the list
+   stays quiet — but always visible on touch, where there is no hover. */
+.convo__more {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  margin-right: -4px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink-low);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.convo__more svg {
+  width: 16px;
+  height: 16px;
+}
+
+.convo:hover .convo__more,
+.convo__more:focus-visible,
+.convo[data-menu-open="true"] .convo__more {
+  opacity: 1;
+}
+
+.convo__more:hover,
+.convo[data-menu-open="true"] .convo__more {
+  background: var(--line-hi);
+  color: var(--ink);
+}
+
+@media (hover: none) {
+  .convo__more {
+    opacity: 1;
+  }
+}
+
+/* Inline rename field — replaces the title in place. */
+.convo__rename {
+  flex: 1;
+  min-width: 0;
+  padding: 2px var(--s-2);
+  border: 1px solid color-mix(in oklch, var(--accent) 60%, transparent);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--step--1);
+  outline: none;
 }
 
 .convos__empty {
@@ -838,6 +909,126 @@ button {
 
 .composer__stop:hover {
   background: var(--line-hi);
+}
+
+/* --- Row menu ------------------------------------------------------------- */
+
+.menu {
+  position: fixed;
+  z-index: var(--z-drawer);
+  min-width: 160px;
+  padding: var(--s-1);
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-md);
+  background: var(--surface-hi);
+  box-shadow: 0 8px 24px oklch(0 0 0 / 0.45);
+  animation: rise 140ms var(--ease);
+}
+
+.menu[hidden] {
+  display: none;
+}
+
+.menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  width: 100%;
+  padding: var(--s-2) var(--s-3);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink-mid);
+  font-size: var(--step--1);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.menu__item svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.menu__item:hover,
+.menu__item:focus-visible {
+  background: var(--line-hi);
+  color: var(--ink);
+}
+
+.menu__item--danger:hover,
+.menu__item--danger:focus-visible {
+  color: var(--danger);
+}
+
+/* --- Confirm dialog ------------------------------------------------------- */
+
+.confirm {
+  width: min(92vw, 400px);
+  padding: var(--s-5);
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.confirm::backdrop {
+  background: oklch(0 0 0 / 0.6);
+}
+
+.confirm[open] {
+  animation: rise 200ms var(--ease);
+}
+
+.confirm__title {
+  margin: 0 0 var(--s-2);
+  font-size: var(--step-1);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.confirm__body {
+  margin: 0 0 var(--s-5);
+  color: var(--ink-mid);
+  font-size: var(--step--1);
+  text-wrap: pretty;
+}
+
+.confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s-2);
+}
+
+.btn {
+  padding: var(--s-2) var(--s-4);
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--ink);
+  font-size: var(--step--1);
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.btn:hover {
+  background: var(--surface-hi);
+}
+
+.btn--danger {
+  border-color: transparent;
+  background: var(--danger);
+  color: oklch(0.14 0 0);
+  font-weight: 500;
+}
+
+.btn--danger:hover {
+  background: oklch(from var(--danger) calc(l + 0.06) c h);
 }
 
 /* --- Toast ---------------------------------------------------------------- */
