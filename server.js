@@ -3,6 +3,7 @@ import express from "express";
 
 import { DEFAULT_ERA, isEra, publicEras } from "./lib/eras.js";
 import { generateTitle, streamReply } from "./lib/chat.js";
+import { findArtifacts } from "./lib/artifacts.js";
 import { rateLimit } from "./lib/rateLimit.js";
 import * as store from "./lib/db.js";
 
@@ -144,6 +145,13 @@ async function streamInto(res, conversation, sessionId, { isFirstExchange, quest
   const controller = new AbortController();
   res.on("close", () => controller.abort());
 
+  // Start the museum lookup immediately, so it runs while the model is still
+  // writing. By the time the reply finishes it's usually already resolved,
+  // which is why the feature costs the user no extra waiting.
+  const artifactsPending = question
+    ? findArtifacts(conversation.era, question)
+    : Promise.resolve([]);
+
   let full = "";
 
   try {
@@ -158,7 +166,16 @@ async function streamInto(res, conversation, sessionId, { isFirstExchange, quest
 
     if (!full.trim()) throw new Error("The model returned an empty reply.");
 
-    store.addMessage(conversation.id, "assistant", full);
+    // Give the lookup a short grace period if the model finished first, but
+    // never hold a finished answer hostage to a slow museum API.
+    const artifacts = await Promise.race([
+      artifactsPending,
+      new Promise((resolve) => setTimeout(() => resolve([]), 4000)),
+    ]);
+
+    store.addMessage(conversation.id, "assistant", full, artifacts);
+
+    if (artifacts.length) sendEvent(res, { type: "artifacts", artifacts });
 
     // Name the conversation from its opening question, once.
     let title = null;
@@ -209,10 +226,23 @@ app.post("/api/conversations/:id/regenerate", askLimit, async (req, res) => {
     return res.status(400).json({ error: "Nothing to regenerate." });
   }
 
-  store.dropLastAssistantMessage(conversation.id);
+  // Only drop a reply if one is actually the last thing in the conversation.
+  // When a turn fails mid-stream the user message is stored but no reply is,
+  // so this endpoint doubles as "retry" — and dropping unconditionally would
+  // delete the previous, perfectly good answer instead.
+  if (turns[turns.length - 1]?.role === "assistant") {
+    store.dropLastAssistantMessage(conversation.id);
+  }
+
+  // Reuse the question that prompted the reply, so the regenerated answer
+  // gets artifacts too rather than silently losing them.
+  const lastQuestion = [...turns].reverse().find((t) => t.role === "user")?.content;
 
   openStream(res);
-  await streamInto(res, conversation, req.sessionId, { isFirstExchange: false });
+  await streamInto(res, conversation, req.sessionId, {
+    isFirstExchange: false,
+    question: lastQuestion,
+  });
 });
 
 // ---------------------------------------------------------------------------

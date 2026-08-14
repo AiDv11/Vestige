@@ -103,15 +103,27 @@
           </button>
         </header>
 
-        <div
-          class="transcript"
-          data-transcript
-          role="log"
-          aria-live="polite"
-          aria-label="Conversation"
-        >
+        <!-- Deliberately NOT aria-live. The reply's HTML is rewritten on every
+             streamed token, so a live region here would re-announce the whole
+             answer hundreds of times. The finished reply is announced once,
+             via the polite region at the end of the document instead. -->
+        <div class="transcript" data-transcript role="log" aria-label="Conversation">
           <!-- injected by app.js -->
         </div>
+
+        <button type="button" class="to-bottom" data-to-bottom hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              d="M12 5v14m0 0 6-6m-6 6-6-6"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          Latest
+        </button>
 
         <form class="composer" data-form>
           <label class="sr-only" for="prompt">Ask a history question</label>
@@ -152,6 +164,9 @@
         </form>
       </main>
     </div>
+
+    <!-- Announces one finished reply at a time to screen readers. -->
+    <div class="sr-only" data-announcer role="status" aria-live="polite"></div>
 
     <!-- Row menu. Lives at body level, positioned with `fixed`, because the
          sidebar scrolls — an absolutely positioned menu would be clipped. -->

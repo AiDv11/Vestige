@@ -8,6 +8,12 @@ interface, and the display typeface, so switching is felt as well as read.
 Replies stream in token by token. Conversations are saved, titled
 automatically, and kept separate per visitor.
 
+Answers arrive with **real museum objects** beside them — photographed
+artifacts from the Metropolitan Museum's open collection, with their catalogue
+dates and a link to the Met. Ask about Hatshepsut and you get the *Sphinx of
+Hatshepsut*, dated ca. 1473–1458 BCE by curators rather than by a language
+model.
+
 Each conversation keeps its own thread. Ask "Who was Sulla?" then "When did he
 die?" — it knows. Start a WWII chat and ask the same follow-up, and it
 correctly has no idea who you mean.
@@ -71,6 +77,36 @@ stream reader and parses the frames by hand (`readStream` in `public/app.js`).
 Aborting the fetch cancels generation server-side and keeps whatever already
 streamed in.
 
+### Grounding answers in real objects
+
+A language model can invent a date. A museum catalogue entry can't — it has an
+accession number, a photograph, and a curator behind it. So every answer is
+accompanied by objects pulled live from the
+[Met's Open Access API](https://metmuseum.github.io/) (no key, no auth).
+
+The lookup starts **at the same moment as the model request** and resolves
+while the reply is still streaming, so it costs the user no extra waiting.
+
+Three things had to be handled, all found by testing the live API rather than
+trusting the docs:
+
+| What the API does | What `lib/artifacts.js` does about it |
+| --- | --- |
+| `departmentId` combined with `q` is broken — *"pharaoh"* filtered to Egyptian Art returns **1** result | Never sends `departmentId`; filters by department on the objects that come back |
+| `hasImages=true` destroys relevance — with it on, the nonsense query *"zzzqqxx"* returns **128** hits | Never sends it; drops image-less objects locally instead |
+| ~24 parallel object requests trips their bot protection, which replies with an **HTML challenge page and a 200** | Batches of 4 with a pause, a real `User-Agent`, and a content-type check before parsing |
+
+**WWII deliberately has no artifacts.** The Met is an art museum with
+essentially no Second World War holdings, and testing showed the search
+returning a portrait from 1866 and *Oedipus and the Sphinx* for "Operation
+Barbarossa". Since the entire point of the feature is that the evidence is
+real, an era with no real evidence shows none. Results are also deduplicated by
+title — the Met catalogues the panels of one wall painting as separate objects.
+
+The whole feature is failure-tolerant by design: on a network error, a bot
+block, a timeout, or thin results, `findArtifacts` returns an empty array and
+the reply simply appears without artifacts. It can never break the chat.
+
 ### Sessions
 
 Each visitor gets a random id in an `HttpOnly` cookie. Not authentication — it
@@ -100,12 +136,14 @@ to compile. Two tables, `conversations` and `messages`, with
 ### Layout
 
 ```
-server.js        routes, sessions, SSE plumbing
-lib/eras.js      era personas and system prompts
-lib/chat.js      everything that talks to Groq
-lib/db.js        SQLite storage
-public/          the frontend — no build step
-index.js         the original terminal version
+server.js          routes, sessions, SSE plumbing
+lib/eras.js        era personas and system prompts
+lib/chat.js        everything that talks to Groq
+lib/artifacts.js   the Met Museum lookup
+lib/db.js          SQLite storage
+lib/rateLimit.js   per-visitor request cap
+public/            the frontend — no build step
+index.js           the original terminal version
 ```
 
 ---
@@ -179,8 +217,13 @@ Fuller reasoning in [`PRODUCT.md`](./PRODUCT.md).
 
 - **The model can be wrong.** It will occasionally produce confident, incorrect
   dates or attributions. The system prompts instruct it to flag uncertainty and
-  never invent quotations, which reduces the problem rather than solving it. The
-  interface says so plainly rather than implying a reliability it doesn't have.
+  never invent quotations, and the museum artifacts give an independent, real
+  reference point — but none of that *solves* it. The interface says so plainly
+  rather than implying a reliability it doesn't have.
+- **Artifacts are related, not cited.** They're matched by keyword against the
+  question, so they illustrate the period rather than proving a specific claim.
+  Abstract questions ("why did the Republic fall?") match less precisely than
+  ones about a person or object.
 - **Sessions are cookie-based, not accounts.** Clear your cookies and your
   conversations become unreachable. Fine for a single-user tool; real accounts
   would need auth.

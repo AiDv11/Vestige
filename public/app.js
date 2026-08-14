@@ -20,6 +20,8 @@ const els = {
   input: $("[data-input]"),
   send: $("[data-send]"),
   stop: $("[data-stop]"),
+  toBottom: $("[data-to-bottom]"),
+  announcer: $("[data-announcer]"),
   menuPop: $("[data-menu-pop]"),
   confirm: $("[data-confirm]"),
   confirmName: $("[data-confirm-name]"),
@@ -422,7 +424,62 @@ async function deleteConversation(conversation) {
 
 // --- transcript -------------------------------------------------------------
 
-function buildMessage({ role, content }) {
+/** Real objects from the Met, shown as evidence under an answer. Everything
+ *  is set with textContent — museum data is third-party text, same as model
+ *  output, and gets the same treatment. */
+function buildArtifacts(items) {
+  const wrap = document.createElement("div");
+  wrap.className = "relics";
+
+  const label = document.createElement("p");
+  label.className = "relics__label";
+  label.textContent = "From the Met Museum collection";
+
+  const row = document.createElement("div");
+  row.className = "relics__row";
+
+  for (const item of items) {
+    const link = document.createElement("a");
+    link.className = "relic";
+    link.href = item.url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.title = [item.title, item.date, item.culture, item.credit]
+      .filter(Boolean)
+      .join(" · ");
+
+    const frame = document.createElement("div");
+    frame.className = "relic__frame";
+
+    const img = document.createElement("img");
+    img.src = item.image;
+    img.alt = item.title;
+    img.loading = "lazy";
+    img.decoding = "async";
+    // A collection this size has some dead image URLs; fade rather than
+    // showing a broken-image icon.
+    img.addEventListener("error", () => {
+      img.dataset.broken = "true";
+    });
+    frame.append(img);
+
+    const title = document.createElement("span");
+    title.className = "relic__title";
+    title.textContent = item.title;
+
+    const date = document.createElement("span");
+    date.className = "relic__date";
+    date.textContent = item.date;
+
+    link.append(frame, title, date);
+    row.append(link);
+  }
+
+  wrap.append(label, row);
+  return wrap;
+}
+
+function buildMessage({ role, content, artifacts }) {
   const el = document.createElement("div");
 
   if (role === "user") {
@@ -433,7 +490,22 @@ function buildMessage({ role, content }) {
 
   if (role === "error") {
     el.className = "msg msg--error";
-    el.textContent = content;
+
+    const text = document.createElement("span");
+    text.textContent = content;
+
+    // Without this an error is a dead end — the question is already stored
+    // server-side, so retrying costs the user nothing but a click.
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "act";
+    retry.textContent = "Try again";
+    retry.addEventListener("click", () => {
+      el.remove();
+      regenerate({ dropLocalReply: false });
+    });
+
+    el.append(text, retry);
     return el;
   }
 
@@ -448,6 +520,10 @@ function buildMessage({ role, content }) {
     </div>
   `;
   el.querySelector(".msg__body").innerHTML = md(content);
+
+  if (artifacts?.length) {
+    el.querySelector(".msg__actions").before(buildArtifacts(artifacts));
+  }
   el.querySelector("[data-copy]").addEventListener("click", async () => {
     await navigator.clipboard.writeText(content);
     toast("Copied");
@@ -516,11 +592,13 @@ function renderTranscript() {
 
   if (state.messages.length === 0) {
     renderEmpty();
+    updateToBottom();
     return;
   }
 
   state.messages.forEach((m) => els.transcript.append(buildMessage(m)));
   scrollToEnd();
+  updateToBottom();
 }
 
 function renderHeader() {
@@ -528,6 +606,16 @@ function renderHeader() {
   els.convoTitle.textContent = convo ? convo.title : "New conversation";
   els.deleteBtn.hidden = !state.currentId;
   applyEra(activeEra());
+
+  // So several open tabs are tellable apart.
+  document.title = convo ? `${convo.title} — History Bot` : "History Bot — ask the past";
+}
+
+/** The jump-to-latest button only earns its space when you've scrolled away. */
+function updateToBottom() {
+  const scrollable =
+    els.transcript.scrollHeight - els.transcript.clientHeight > 40;
+  els.toBottom.hidden = !scrollable || isPinnedToBottom();
 }
 
 // --- thinking indicator -----------------------------------------------------
@@ -661,6 +749,7 @@ async function send(text) {
   state.messages.push({ role: "user", content: message });
   els.transcript.append(buildMessage({ role: "user", content: message }));
   scrollToEnd();
+  updateToBottom();
   renderHeader();
 
   await stream(`/api/conversations/${state.currentId}/messages`, { message });
@@ -705,6 +794,7 @@ async function consume(res) {
   let bubble = null;
   let body = null;
   let text = "";
+  let artifacts = [];
 
   const ensureBubble = () => {
     if (bubble) return;
@@ -722,10 +812,18 @@ async function consume(res) {
         const pinned = isPinnedToBottom();
         body.innerHTML = md(text) + '<span class="caret"></span>';
         if (pinned) scrollToEnd();
+      } else if (evt.type === "artifacts") {
+        ensureBubble();
+        artifacts = evt.artifacts;
+        bubble.querySelector(".msg__actions").before(buildArtifacts(artifacts));
+        if (isPinnedToBottom()) scrollToEnd();
       } else if (evt.type === "done") {
         ensureBubble();
         body.innerHTML = md(text);
-        state.messages.push({ role: "assistant", content: text });
+        state.messages.push({ role: "assistant", content: text, artifacts });
+        // Announce the finished reply once. The transcript itself is not a
+        // live region, precisely so this isn't said on every token.
+        els.announcer.textContent = text;
         if (evt.title) {
           const convo = state.conversations.find(
             (c) => c.id === state.currentId,
@@ -745,7 +843,7 @@ async function consume(res) {
   } catch (err) {
     if (err.name === "AbortError") {
       if (body) body.innerHTML = md(text);
-      if (text) state.messages.push({ role: "assistant", content: text });
+      if (text) state.messages.push({ role: "assistant", content: text, artifacts });
     } else {
       bubble?.remove();
       els.transcript.append(
@@ -759,20 +857,28 @@ async function consume(res) {
     els.send.disabled = false;
     els.stop.hidden = true;
     if (isPinnedToBottom()) scrollToEnd();
+    updateToBottom();
     refreshConversations().catch(() => {});
   }
 }
 
-async function regenerate() {
+/**
+ * Ask the server for a fresh reply.
+ *
+ * Used two ways: the Regenerate button (which discards the reply on screen
+ * first) and Try again after an error (where there is no reply to discard —
+ * the server endpoint only drops a stored reply if one is actually last).
+ */
+async function regenerate({ dropLocalReply = true } = {}) {
   if (state.busy || !state.currentId) return;
 
-  // Drop the last assistant turn locally, then ask the server to redo it.
-  const lastBot = [...els.transcript.querySelectorAll(".msg--bot")].pop();
-  lastBot?.remove();
-  for (let i = state.messages.length - 1; i >= 0; i--) {
-    if (state.messages[i].role === "assistant") {
-      state.messages.splice(i, 1);
-      break;
+  if (dropLocalReply) {
+    [...els.transcript.querySelectorAll(".msg--bot")].pop()?.remove();
+    for (let i = state.messages.length - 1; i >= 0; i--) {
+      if (state.messages[i].role === "assistant") {
+        state.messages.splice(i, 1);
+        break;
+      }
     }
   }
 
@@ -848,6 +954,19 @@ els.menu.addEventListener("click", () => {
 });
 
 els.scrim.addEventListener("click", closeDrawer);
+
+els.toBottom.addEventListener("click", () => {
+  els.transcript.scrollTo({
+    top: els.transcript.scrollHeight,
+    behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "auto"
+      : "smooth",
+  });
+  els.input.focus();
+});
+
+els.transcript.addEventListener("scroll", updateToBottom, { passive: true });
+new ResizeObserver(updateToBottom).observe(els.transcript);
 
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
