@@ -35,7 +35,8 @@ const FONTS = {
   rome: "Cormorant+Garamond:wght@700",
   egypt: "Zilla+Slab:wght@600",
   medieval: "Cardo:wght@700",
-  ww2: "Oswald:wght@600",
+  islamic: "Amiri:wght@700",
+  song: "Source+Serif+4:wght@600",
 };
 
 const THINKING = {
@@ -43,7 +44,8 @@ const THINKING = {
   rome: ["Consulting the annals", "Checking the Fasti", "Reading the inscriptions"],
   egypt: ["Reading the cartouches", "Checking the king lists", "Consulting the papyri"],
   medieval: ["Turning the manuscript", "Consulting the chronicles", "Checking the rolls"],
-  ww2: ["Pulling the dispatches", "Reading the war diaries", "Checking the reports"],
+  islamic: ["Consulting the House of Wisdom", "Checking the star tables", "Reading the commentaries"],
+  song: ["Setting the movable type", "Unrolling the scroll", "Consulting the gazetteer"],
 };
 
 const STARTERS = {
@@ -67,10 +69,15 @@ const STARTERS = {
     "What triggered the First Crusade?",
     "How did the Black Death change society?",
   ],
-  ww2: [
-    "Why did Barbarossa fail?",
-    "What was the significance of Midway?",
-    "How was Enigma broken?",
+  islamic: [
+    "Who was Al-Khwarizmi?",
+    "What was the House of Wisdom?",
+    "How did Ibn al-Haytham study light?",
+  ],
+  song: [
+    "How did movable type actually work?",
+    "Why did Song China invent paper money?",
+    "What was the examination system?",
   ],
 };
 
@@ -90,11 +97,18 @@ const state = {
 const loadedFonts = new Set();
 
 const eraById = (id) => state.eras.find((e) => e.id === id);
-const activeEra = () =>
-  state.currentId
+
+const activeEra = () => {
+  const stored = state.currentId
     ? (state.conversations.find((c) => c.id === state.currentId)?.era ??
       state.draftEra)
     : state.draftEra;
+
+  // Same fallback as resolveEra() on the server: a conversation saved before
+  // `ww2` became `islamic` still carries the old key, which matches no era,
+  // no theme and no font. Resolve it so those conversations still render.
+  return eraById(stored) ? stored : "all";
+};
 
 // --- fonts ------------------------------------------------------------------
 

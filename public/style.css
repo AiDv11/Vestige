@@ -128,13 +128,26 @@
   --display-tracking: -0.015em;
 }
 
-[data-era="ww2"] {
-  --accent: oklch(0.7 0.1 226);
-  --tint: oklch(0.09 0.006 226);
-  --tint-hi: oklch(0.13 0.01 226);
-  --font-display: "Oswald", "Arial Narrow", sans-serif;
+/* Amiri is a naskh face revived from the types of the Bulaq Press, the first
+   printing house in the Arab world. */
+[data-era="islamic"] {
+  --accent: oklch(0.68 0.12 185);
+  --tint: oklch(0.09 0.007 185);
+  --tint-hi: oklch(0.13 0.011 185);
+  --font-display: "Amiri", Georgia, serif;
+  --display-weight: 700;
+  --display-tracking: -0.01em;
+}
+
+/* Source Serif's CJK sibling is Source Han Serif — a Songti, the typeface
+   class named after this dynasty. */
+[data-era="song"] {
+  --accent: oklch(0.66 0.16 340);
+  --tint: oklch(0.09 0.008 340);
+  --tint-hi: oklch(0.13 0.012 340);
+  --font-display: "Source Serif 4", Georgia, serif;
   --display-weight: 600;
-  --display-tracking: 0;
+  --display-tracking: -0.02em;
 }
 
 * {
@@ -356,8 +369,11 @@ button {
 .convo[data-era="medieval"] {
   --era-dot: oklch(0.66 0.15 285);
 }
-.convo[data-era="ww2"] {
-  --era-dot: oklch(0.7 0.1 226);
+.convo[data-era="islamic"] {
+  --era-dot: oklch(0.68 0.12 185);
+}
+.convo[data-era="song"] {
+  --era-dot: oklch(0.66 0.16 340);
 }
 
 .convo__title {
