@@ -3,7 +3,8 @@
 **ask the past**
 
 A chat interface for history questions. Pick an era — Ancient Rome, Egypt,
-Medieval Europe, WWII — and the assistant adopts that period's expertise. The
+Medieval Europe, the Islamic Golden Age, Song China — and the assistant adopts
+that period's expertise. The
 era changes the system prompt behind the conversation, the accent colour of the
 interface, and the display typeface, so switching is felt as well as read.
 
@@ -17,7 +18,7 @@ Hatshepsut*, dated ca. 1473–1458 BCE by curators rather than by a language
 model.
 
 Each conversation keeps its own thread. Ask "Who was Sulla?" then "When did he
-die?" — it knows. Start a WWII chat and ask the same follow-up, and it
+die?" — it knows. Start a Song China chat and ask the same follow-up, and it
 correctly has no idea who you mean.
 
 ---
@@ -58,8 +59,9 @@ export function buildMessages(era, turns) {
 
 **Personas** are that same array with a different first element. Each era's
 system prompt defines what the assistant knows and how it speaks: Rome glosses
-Latin terms, Egypt flags disputed chronology, WWII is instructed to handle
-atrocities without euphemism. Same model, different instructions.
+Latin terms, Egypt flags disputed chronology, and the Islamic Golden Age is
+told not to call the period "Arab" science when its major figures were Persian,
+Andalusian and Central Asian. Same model, different instructions.
 
 ### Streaming
 
@@ -98,12 +100,17 @@ trusting the docs:
 | `hasImages=true` destroys relevance — with it on, the nonsense query *"zzzqqxx"* returns **128** hits | Never sends it; drops image-less objects locally instead |
 | ~24 parallel object requests trips their bot protection, which replies with an **HTML challenge page and a 200** | Batches of 4 with a pause, a real `User-Agent`, and a content-type check before parsing |
 
-**WWII deliberately has no artifacts.** The Met is an art museum with
-essentially no Second World War holdings, and testing showed the search
-returning a portrait from 1866 and *Oedipus and the Sphinx* for "Operation
+**An era can be given no artifacts at all.** Setting `departments: null`
+disables the lookup for that era entirely. No era currently needs it, but the
+escape hatch exists because of a real case: the app once had a WWII era, and
+the Met — an art museum with essentially no Second World War holdings — cheerfully
+returned a portrait from 1866 and *Oedipus and the Sphinx* for "Operation
 Barbarossa". Since the entire point of the feature is that the evidence is
-real, an era with no real evidence shows none. Results are also deduplicated by
-title — the Met catalogues the panels of one wall painting as separate objects.
+real, an era the collection can't evidence shows nothing rather than something
+wrong.
+
+Results are also deduplicated by title — the Met catalogues the panels of one
+wall painting as separate objects.
 
 The whole feature is failure-tolerant by design: on a network error, a bot
 block, a timeout, or thin results, `findArtifacts` returns an empty array and
@@ -193,7 +200,7 @@ That was rejected deliberately: this is a tool for asking questions, not a prop
 from a period drama. The shell is a neutral near-black instrument and the era
 supplies what moves — verdigris for general history (the green of oxidised
 bronze on excavated artifacts), oxide red for Rome, gold for Egypt, indigo for
-Medieval, steel for WWII.
+Medieval, teal for the Islamic Golden Age, magenta for Song China.
 
 Each era also gets its own display typeface, and there's a joke buried in the
 choices: **Egypt is set in a slab serif**, because slab serifs were literally

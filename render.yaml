@@ -4,7 +4,7 @@
 
 services:
   - type: web
-    name: history-bot
+    name: vestige
     runtime: node
     plan: free
     buildCommand: npm install

@@ -218,3 +218,7 @@ and hid a genuinely broken feature.
   (verified). `data/` is gitignored too — it holds real conversations.
 - Every interactive element needs keyboard access and a visible focus state;
   `prefers-reduced-motion` is honoured throughout.
+- A standalone `.svg` file is XML, so a comment inside it can never contain a
+  double hyphen — `public/favicon.svg` failed to parse because its comment
+  mentioned a CSS custom property by name. Write "the accent variable", not the
+  literal token, inside SVG comments.
