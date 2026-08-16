@@ -1,249 +1,231 @@
-# Vestige
+# Vestige — ask the past
 
-**ask the past**
+A chat application for history questions. You pick an era, and the assistant
+answers with that period's expertise — Ancient Rome, Egypt, Medieval Europe,
+the Islamic Golden Age, Song China, or anything you name yourself. Alongside
+each answer, real photographed objects from the Metropolitan Museum's open
+collection appear as evidence: ask about Hatshepsut and the *Sphinx of
+Hatshepsut* appears, dated ca. 1473–1458 BCE by curators rather than by a
+language model.
 
-A chat interface for history questions. Pick an era — Ancient Rome, Egypt,
-Medieval Europe, the Islamic Golden Age, Song China — and the assistant adopts
-that period's expertise. The
-era changes the system prompt behind the conversation, the accent colour of the
-interface, and the display typeface, so switching is felt as well as read.
-
-Replies stream in token by token. Conversations are saved, titled
-automatically, and kept separate per visitor.
-
-Answers arrive with **real museum objects** beside them — photographed
-artifacts from the Metropolitan Museum's open collection, with their catalogue
-dates and a link to the Met. Ask about Hatshepsut and you get the *Sphinx of
-Hatshepsut*, dated ca. 1473–1458 BCE by curators rather than by a language
-model.
-
-Each conversation keeps its own thread. Ask "Who was Sulla?" then "When did he
-die?" — it knows. Start a Song China chat and ask the same follow-up, and it
-correctly has no idea who you mean.
+**Live: <https://vestige-ilw5.onrender.com>**
 
 ---
 
-## Run it
+## Why the era mechanic exists
 
-```bash
-git clone https://github.com/AiDv11/history-bot.git
-cd history-bot
-npm install
-cp .env.example .env      # then paste your Groq key into .env
-npm run server
-```
+The fair criticism of any chatbot project is that it's one API call in a trench
+coat. The era mechanic is the answer to that, and everything else is built
+around it.
 
-Open <http://localhost:3000>.
+Switching era changes four things at once:
 
-A free API key from [console.groq.com](https://console.groq.com) is all you need
-— no credit card. There's also a terminal version: `npm start`.
-
-Requires **Node 22+** (it uses the built-in `node:sqlite`).
-
----
-
-## How it works
-
-The whole thing rests on one idea: **an LLM has no memory, so the app is the
-memory.** Every request sends the entire conversation back to the model.
-
-```js
-// lib/chat.js
-export function buildMessages(era, turns) {
-  return [
-    { role: "system", content: ERAS[era].system },  // the persona
-    ...turns,                                        // everything said so far
-  ];
-}
-```
-
-**Personas** are that same array with a different first element. Each era's
-system prompt defines what the assistant knows and how it speaks: Rome glosses
-Latin terms, Egypt flags disputed chronology, and the Islamic Golden Age is
-told not to call the period "Arab" science when its major figures were Persian,
-Andalusian and Central Asian. Same model, different instructions.
-
-### Streaming
-
-Replies arrive over **Server-Sent Events** — one long-lived HTTP response the
-server writes to as tokens arrive from the model. One-way data, so SSE fits
-better than WebSockets.
-
-```
-POST /api/conversations/:id/messages
-  → data: {"type":"delta","text":"Lucius"}
-  → data: {"type":"delta","text":" Cornelius"}
-  → data: {"type":"done","title":"Sulla Roman Dictator"}
-```
-
-`EventSource` only does GET, so the browser reads the response body with a
-stream reader and parses the frames by hand (`readStream` in `public/app.js`).
-Aborting the fetch cancels generation server-side and keeps whatever already
-streamed in.
-
-### Grounding answers in real objects
-
-A language model can invent a date. A museum catalogue entry can't — it has an
-accession number, a photograph, and a curator behind it. So every answer is
-accompanied by objects pulled live from the
-[Met's Open Access API](https://metmuseum.github.io/) (no key, no auth).
-
-The lookup starts **at the same moment as the model request** and resolves
-while the reply is still streaming, so it costs the user no extra waiting.
-
-Three things had to be handled, all found by testing the live API rather than
-trusting the docs:
-
-| What the API does | What `lib/artifacts.js` does about it |
+| | |
 | --- | --- |
-| `departmentId` combined with `q` is broken — *"pharaoh"* filtered to Egyptian Art returns **1** result | Never sends `departmentId`; filters by department on the objects that come back |
-| `hasImages=true` destroys relevance — with it on, the nonsense query *"zzzqqxx"* returns **128** hits | Never sends it; drops image-less objects locally instead |
-| ~24 parallel object requests trips their bot protection, which replies with an **HTML challenge page and a 200** | Batches of 4 with a pause, a real `User-Agent`, and a content-type check before parsing |
+| **The system prompt** | Rome glosses Latin terms. Egypt gives dynasty and kingdom alongside dates, and flags where Egyptian chronology is genuinely disputed. The Islamic Golden Age is instructed not to call the period "Arab" science, because its major figures were Persian, Andalusian and Central Asian. |
+| **The accent colour** | Every surface in the interface shifts hue. Accents interpolate rather than snap, via a registered `@property`. |
+| **The display typeface** | Loaded on demand, so the first paint costs zero webfonts. |
+| **Which museum departments are searched** | Rome searches Greek and Roman Art; Egypt searches Egyptian Art; Medieval searches Medieval Art, The Cloisters and Arms and Armor. |
 
-**An era can be given no artifacts at all.** Setting `departments: null`
-disables the lookup for that era entirely. No era currently needs it, but the
-escape hatch exists because of a real case: the app once had a WWII era, and
-the Met — an art museum with essentially no Second World War holdings — cheerfully
-returned a portrait from 1866 and *Oedipus and the Sphinx* for "Operation
-Barbarossa". Since the entire point of the feature is that the evidence is
-real, an era the collection can't evidence shows nothing rather than something
-wrong.
+The typeface choices are not arbitrary. Egypt is set in a slab serif because
+slab serifs were called "Egyptians" by nineteenth-century type foundries.
+Medieval uses Cardo, designed for medieval scholarship. Islamic uses Amiri,
+revived from the types of the Bulaq Press. Song uses Source Serif, whose CJK
+sibling is a Songti — the typeface class named after that dynasty.
 
-Results are also deduplicated by title — the Met catalogues the panels of one
-wall painting as separate objects.
-
-The whole feature is failure-tolerant by design: on a network error, a bot
-block, a timeout, or thin results, `findArtifacts` returns an empty array and
-the reply simply appears without artifacts. It can never break the chat.
-
-### Sessions
-
-Each visitor gets a random id in an `HttpOnly` cookie. Not authentication — it
-just means two browsers get two separate sets of conversations. Every query is
-scoped by it, so requesting someone else's conversation id returns a 404 rather
-than their chat.
-
-### Storage
-
-`node:sqlite`, built into Node 22+ — no dependency to install, no native module
-to compile. Two tables, `conversations` and `messages`, with
-`ON DELETE CASCADE` so deleting a conversation takes its messages with it.
-
-### Routes
-
-| Method   | Route                                | Does                                    |
-| -------- | ------------------------------------ | --------------------------------------- |
-| `GET`    | `/api/eras`                          | Era list — the UI builds itself from it |
-| `GET`    | `/api/conversations`                 | This session's conversations            |
-| `POST`   | `/api/conversations`                 | Create one for an era                   |
-| `GET`    | `/api/conversations/:id`             | Conversation + its messages             |
-| `PATCH`  | `/api/conversations/:id`             | Rename                                  |
-| `DELETE` | `/api/conversations/:id`             | Delete                                  |
-| `POST`   | `/api/conversations/:id/messages`    | Send a message → **SSE stream**         |
-| `POST`   | `/api/conversations/:id/regenerate`  | Redo the last reply → **SSE stream**    |
-
-### Layout
-
-```
-server.js          routes, sessions, SSE plumbing
-lib/eras.js        era personas and system prompts
-lib/chat.js        everything that talks to Groq
-lib/artifacts.js   the Met Museum lookup
-lib/db.js          SQLite storage
-lib/rateLimit.js   per-visitor request cap
-public/            the frontend — no build step
-index.js           the original terminal version
-```
+Underneath, the whole thing rests on one idea: **a language model has no
+memory, so the application is the memory.** Every request resends the entire
+conversation, with the era's persona as its first element. Personas are that
+same array with a different first element. There is no other mechanism.
 
 ---
 
-## Stack
+## Custom eras, and containing untrusted input
 
-| Layer    | Choice                            |
-| -------- | --------------------------------- |
-| Runtime  | Node 22+                          |
-| Server   | Express                           |
-| Storage  | `node:sqlite` (built in)          |
-| Model    | `openai/gpt-oss-120b` via Groq    |
-| Frontend | Vanilla HTML / CSS / JS, no build |
+You can type any period name and the model generates the era: its label, date
+range, accent hue, typeface, museum department, and the persona text that
+drives it.
 
-Three runtime dependencies total: `express`, `groq-sdk`, `dotenv`. No frontend
-framework and no build step — the browser reads the three files in `public/`
-directly. Groq uses the OpenAI-compatible format, so switching providers is a
-change to one file.
+The governing rule is that **the model writes content, never structure.** Two
+of the fields it returns are not cosmetic:
+
+- **The typeface is a key, not a font name.** The key indexes a hardcoded list
+  of eight vetted fonts, and the matching entry becomes a **Google Fonts
+  stylesheet URL**. A free-text font name from the model would be a URL going
+  into the page. An unknown key is rejected outright rather than falling back
+  to a default — a fallback would turn a rejected value into an accepted one.
+- **The museum department must match the Met's real list exactly, or be null.**
+  It becomes an **API parameter** and decides which objects are presented as
+  evidence. There are nineteen valid values. `null` is a legitimate answer: the
+  era then ships with artifacts switched off, and the interface says so, because
+  a wrong artifact is worse than none.
+
+The generated hue is range-checked and must sit at least 25° from every
+existing era's hue, measured around the colour wheel, so a generated era never
+looks like Rome.
+
+The persona text is never used as a system prompt and never concatenated into
+one. It goes into a **delimited slot** inside a fixed template, framed as data,
+with the rules stated before it. Angle brackets are stripped so the slot cannot
+be closed early.
+
+That last defence has a history worth stating. Stripping during validation was
+not sufficient on its own, because the function that builds the prompt was
+*trusting that validation had happened*. A persona reaching it with a closing
+marker intact escaped the slot, and the model followed the instructions inside
+— it named the delimiters and abandoned the question. The fix was to strip
+again at the point of use. There is a test that plants a hostile persona
+directly in the database, bypassing validation entirely, and asserts the model
+answers the history question instead.
+
+The visitor's own input is gated before it reaches any of this: a 60-character
+cap, a character whitelist, and control characters refused rather than
+normalised, so a newline can't be quietly flattened into something that passes.
 
 ---
 
-## Deploying
+## Three Met API bugs, none of them documented
 
-`render.yaml` is checked in, so connecting the repo at
-[render.com](https://render.com) is enough — it reads the config, installs, and
-runs `npm start`. Set `GROQ_API_KEY` in the dashboard (it's marked `sync: false`
-so it never lives in the repo).
+All three were found by testing the live API rather than trusting its docs, and
+each one shapes how `lib/artifacts.js` is written.
 
-Two things to know about the free tier: the service **sleeps after ~15 minutes**
-of inactivity, so the first request after a quiet spell takes about a minute;
-and the filesystem is **ephemeral**, so saved conversations reset whenever the
-instance restarts. Both are fine for a demo. A paid instance with a persistent
-disk fixes both.
+1. **`departmentId` combined with `q` is broken.** Searching `pharaoh` filtered
+   to Egyptian Art returns **one** result. The fix is to never send
+   `departmentId`, and instead filter on the `department` field of the objects
+   that come back.
+2. **`hasImages=true` destroys relevance.** With it enabled, the nonsense query
+   `zzzqqxx` returns **128 hits**. It is never sent; objects without a
+   photograph are dropped locally instead.
+3. **Bot protection returns an HTML challenge page with HTTP 200.** Firing
+   roughly 24 parallel object requests trips it, and because the status is 200,
+   a naive `.json()` throws a confusing `SyntaxError` rather than a network
+   error. Mitigated with batches of four, a pause between them, a real
+   `User-Agent`, and a content-type check before parsing.
 
-Because the deployed key is reachable by anyone with the URL, `/api/.../messages`
-and `/api/.../regenerate` are capped at 12 requests per minute per visitor
-(`lib/rateLimit.js`).
+Results are also deduplicated by title, because the Met catalogues the panels
+of a single wall painting as separate objects — which made Augustus appear
+three times.
+
+The lookup starts at the same moment as the model request and its result is
+delivered in a later event, so a slow museum never delays a finished answer. If
+it fails, times out, or finds nothing, the reply simply appears without
+artifacts.
 
 ---
 
-## Design notes
+## Testing
 
-The obvious visual direction for a history app is parchment, sepia and serifs.
-That was rejected deliberately: this is a tool for asking questions, not a prop
-from a period drama. The shell is a neutral near-black instrument and the era
-supplies what moves — verdigris for general history (the green of oxidised
-bronze on excavated artifacts), oxide red for Rome, gold for Egypt, indigo for
-Medieval, teal for the Islamic Golden Age, magenta for Song China.
+There is no test framework. Tests are standalone Node scripts run against a
+second server instance on a separate port and database, covering the API
+surface, session isolation, message editing, artifact behaviour, custom era
+validation, and prompt-injection containment.
 
-Each era also gets its own display typeface, and there's a joke buried in the
-choices: **Egypt is set in a slab serif**, because slab serifs were literally
-called "Egyptians" by 19th-century type foundries. Medieval uses **Cardo**,
-which was designed for medieval and classical scholarship.
+The part worth mentioning is how the assertions are trusted: **the code is
+deliberately broken to confirm the tests fail.** Message editing truncates a
+conversation by message id, which is the operation most likely to destroy data,
+so it was mutated twice —
 
-Fonts are fetched **only when an era is first opened**, and prewarmed on hover,
-so the initial page load costs zero webfonts. Body text is the system stack
-everywhere.
+- changing `id >= ?` to `id > ?` produced **9 failures**
+- deleting two messages too far back produced the one that matters:
+  `the earlier good reply SURVIVED — DELETED`
 
-Accents and surface tints interpolate rather than snap between eras, via
-registered `@property` custom properties.
+— and then reverted. A green run means something only if a red run was
+reachable.
 
-Accessibility: WCAG AA contrast throughout, era never signalled by colour alone,
-full keyboard operation, `prefers-reduced-motion` honoured, transcript is a live
-region.
-
-Fuller reasoning in [`PRODUCT.md`](./PRODUCT.md).
+One earlier assertion used `.every()` on a possibly-empty array, which is
+vacuously true, and passed while the feature behind it was broken. That is the
+reason for the rule above.
 
 ---
 
 ## Known limitations
 
-- **The model can be wrong.** It will occasionally produce confident, incorrect
-  dates or attributions. The system prompts instruct it to flag uncertainty and
-  never invent quotations, and the museum artifacts give an independent, real
-  reference point — but none of that *solves* it. The interface says so plainly
-  rather than implying a reliability it doesn't have.
-- **Artifacts are related, not cited.** They're matched by keyword against the
+- **Conversations do not survive a redeploy.** The deployed instance runs on
+  Render's free tier, which has an ephemeral filesystem, so the SQLite database
+  is lost whenever the instance restarts or wakes from sleep. Locally it
+  persists normally. A paid instance with a disk would fix it.
+- **The free tier also sleeps** after inactivity, so the first request after a
+  quiet period is slow.
+- **The model can still be wrong.** The system prompts instruct it to flag
+  uncertainty and never invent quotations, and the museum objects give an
+  independent reference point, but none of that solves it. The interface says
+  so rather than implying a reliability it doesn't have.
+- **Artifacts are related, not cited.** They are matched by keyword against the
   question, so they illustrate the period rather than proving a specific claim.
-  Abstract questions ("why did the Republic fall?") match less precisely than
-  ones about a person or object.
-- **Sessions are cookie-based, not accounts.** Clear your cookies and your
-  conversations become unreachable. Fine for a single-user tool; real accounts
-  would need auth.
-- **Node prints an experimental warning** for `node:sqlite` on startup. Harmless.
-- **No rate limiting.** Fine locally; would need adding before a public deploy.
+- **Sessions are cookie-based, not accounts.** Clearing cookies makes your
+  conversations unreachable.
 
 ---
 
-## Roadmap
+## Stack
 
-- [ ] Rate limiting before any public deployment
-- [ ] Search across past conversations
-- [ ] Export a conversation to markdown
-- [ ] Rebuild the frontend in React as a second implementation
+| Layer | |
+| --- | --- |
+| Runtime | Node 22+ |
+| Server | Express |
+| Storage | `node:sqlite`, built in — three tables, no ORM |
+| Model | `openai/gpt-oss-120b` via Groq |
+| Artifacts | Met Museum Open Access API — no key, no auth |
+| Frontend | Vanilla HTML, CSS and JavaScript — no framework, no build step |
+
+Three runtime dependencies in total: `express`, `groq-sdk`, `dotenv`. The
+frontend is three files the browser reads directly. Groq uses the
+OpenAI-compatible format, so changing providers is a change to one file.
+
+Rate limiting is per visitor: 12 model calls a minute, 30 writes.
+
+```
+server.js            routes, sessions, SSE
+lib/eras.js          the six built-in personas, and the closed lists custom eras validate against
+lib/customEras.js    generation, validation, the delimited prompt slot
+lib/chat.js          everything that talks to Groq
+lib/artifacts.js     Met Museum lookup
+lib/db.js            SQLite schema and queries
+lib/rateLimit.js     per-visitor request cap
+public/              the frontend
+index.js             the original terminal version, kept as history
+```
+
+---
+
+## Running it locally
+
+```bash
+git clone https://github.com/AiDv11/Vestige.git
+cd Vestige
+npm install
+cp .env.example .env      # then paste your Groq key into .env
+npm start
+```
+
+Open <http://localhost:3000>.
+
+A free API key from [console.groq.com](https://console.groq.com) is all that is
+needed — no credit card. Requires **Node 22+**, for the built-in
+`node:sqlite`.
+
+`npm start` runs with `--watch`, so server changes reload automatically.
+`npm run server` runs without it. `npm run cli` starts the original terminal
+version.
+
+The startup line prints a route count:
+
+```
+Vestige running: http://localhost:3000
+12 routes | database: .../data/history.db
+```
+
+If that number doesn't match the code you just edited, the server didn't
+restart — files in `public/` are re-read per request, but server code is loaded
+once.
+
+---
+
+## Deploying
+
+`render.yaml` is checked in, so connecting the repository at
+[render.com](https://render.com) is enough. Set `GROQ_API_KEY` in the dashboard;
+it is marked `sync: false` so it never lives in the repo.
+
+Design reasoning is in [`PRODUCT.md`](./PRODUCT.md). Architectural notes and the
+decisions that must not be undone are in [`CLAUDE.md`](./CLAUDE.md).
