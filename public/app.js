@@ -832,11 +832,31 @@ async function consume(res) {
   els.send.disabled = true;
   els.stop.hidden = false;
 
+  // The stream now outlives the reply: artifacts arrive after `done`. So the
+  // composer is released when the answer is finished, not when the connection
+  // closes — otherwise a slow museum lookup would keep the send button
+  // disabled for seconds after the reply was already on screen.
+  const myController = state.controller;
+  let released = false;
+
+  const releaseInput = () => {
+    if (released) return;
+    released = true;
+    // A newer turn may already own the UI; don't undo its busy state.
+    if (state.controller !== myController) return;
+    state.busy = false;
+    state.controller = null;
+    els.send.disabled = false;
+    els.stop.hidden = true;
+    els.input.focus();
+  };
+
   const stopThinking = showThinking();
   let bubble = null;
   let body = null;
   let text = "";
   let artifacts = [];
+  let assistantEntry = null;
 
   const ensureBubble = () => {
     if (bubble) return;
@@ -866,12 +886,18 @@ async function consume(res) {
       } else if (evt.type === "artifacts") {
         ensureBubble();
         artifacts = evt.artifacts;
+        // Normally this lands after `done`, so the reply is already in state —
+        // update it in place so the strip survives a re-render.
+        if (assistantEntry) assistantEntry.artifacts = artifacts;
         bubble.querySelector(".msg__actions").before(buildArtifacts(artifacts));
         if (isPinnedToBottom()) scrollToEnd();
       } else if (evt.type === "done") {
         ensureBubble();
         body.innerHTML = md(text);
-        state.messages.push({ role: "assistant", content: text, artifacts });
+        assistantEntry = { role: "assistant", content: text, artifacts };
+        state.messages.push(assistantEntry);
+        // The answer is complete; the stream stays open only for artifacts.
+        releaseInput();
         // Announce the finished reply once. The transcript itself is not a
         // live region, precisely so this isn't said on every token.
         els.announcer.textContent = text;
@@ -903,10 +929,7 @@ async function consume(res) {
     }
   } finally {
     stopThinking();
-    state.busy = false;
-    state.controller = null;
-    els.send.disabled = false;
-    els.stop.hidden = true;
+    releaseInput(); // no-op if `done` already released it
     if (isPinnedToBottom()) scrollToEnd();
     updateToBottom();
     refreshConversations().catch(() => {});

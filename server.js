@@ -143,7 +143,11 @@ function sendEvent(res, payload) {
  *  whatever turns are currently stored. */
 async function streamInto(res, conversation, sessionId, { isFirstExchange, question }) {
   const controller = new AbortController();
-  res.on("close", () => controller.abort());
+  let clientGone = false;
+  res.on("close", () => {
+    clientGone = true;
+    controller.abort();
+  });
 
   // Start the museum lookup immediately, so it runs while the model is still
   // writing. By the time the reply finishes it's usually already resolved,
@@ -166,16 +170,7 @@ async function streamInto(res, conversation, sessionId, { isFirstExchange, quest
 
     if (!full.trim()) throw new Error("The model returned an empty reply.");
 
-    // Give the lookup a short grace period if the model finished first, but
-    // never hold a finished answer hostage to a slow museum API.
-    const artifacts = await Promise.race([
-      artifactsPending,
-      new Promise((resolve) => setTimeout(() => resolve([]), 4000)),
-    ]);
-
-    store.addMessage(conversation.id, "assistant", full, artifacts);
-
-    if (artifacts.length) sendEvent(res, { type: "artifacts", artifacts });
+    const assistantId = store.addMessage(conversation.id, "assistant", full);
 
     // Name the conversation from its opening question, once.
     let title = null;
@@ -184,7 +179,22 @@ async function streamInto(res, conversation, sessionId, { isFirstExchange, quest
       store.renameConversation(conversation.id, sessionId, title);
     }
 
+    // The reply is finished here. Nothing below is allowed to delay it.
     sendEvent(res, { type: "done", title });
+
+    // The museum lookup finishes on its own schedule. The stream stays open a
+    // little longer purely to deliver it — the client has already rendered the
+    // answer and re-enabled input, and if this never arrives the reply simply
+    // stands without artifacts. Previously this was a 4-second race the Met
+    // often lost, which silently dropped artifacts that had been found.
+    const artifacts = await artifactsPending;
+
+    if (artifacts.length) {
+      // Persist regardless of whether anyone is still listening, so a reload
+      // shows them even if the tab was closed mid-lookup.
+      store.setMessageArtifacts(assistantId, artifacts);
+      if (!clientGone) sendEvent(res, { type: "artifacts", artifacts });
+    }
   } catch (error) {
     if (controller.signal.aborted) return res.end();
 
@@ -294,7 +304,29 @@ app.post("/api/conversations/:id/regenerate", askLimit, async (req, res) => {
 
 app.use(express.static("public"));
 
+/**
+ * Count registered routes. Printing this at startup makes a stale process
+ * obvious at a glance: if the number doesn't match the code you just edited,
+ * the server didn't restart. Express 5 exposes `app.router`; 4 uses `_router`.
+ */
+function countRoutes() {
+  // Express 4 keeps the stack on `_router`. Check that FIRST: on Express 4
+  // `app.router` is a deprecated getter that *throws*, so optional chaining
+  // doesn't protect you — reading it at all is the error.
+  let stack = app._router?.stack;
+
+  if (!stack) {
+    try {
+      stack = app.router?.stack; // Express 5
+    } catch {
+      stack = null;
+    }
+  }
+
+  return (stack ?? []).filter((layer) => layer.route).length;
+}
+
 app.listen(PORT, () => {
-  console.log(`History bot running: http://localhost:${PORT}`);
-  console.log(`Database: ${store.DB_PATH}`);
+  console.log(`Vestige running: http://localhost:${PORT}`);
+  console.log(`${countRoutes()} routes | database: ${store.DB_PATH}`);
 });
