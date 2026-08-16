@@ -493,12 +493,31 @@ function buildArtifacts(items) {
   return wrap;
 }
 
-function buildMessage({ role, content, artifacts }) {
+function buildMessage(message) {
+  const { role, content, artifacts } = message;
   const el = document.createElement("div");
 
   if (role === "user") {
     el.className = "msg msg--user";
-    el.textContent = content;
+
+    const bubble = document.createElement("div");
+    bubble.className = "msg__bubble";
+    bubble.textContent = content;
+
+    const actions = document.createElement("div");
+    actions.className = "msg__actions";
+
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "act";
+    edit.dataset.edit = "";
+    edit.textContent = "Edit";
+    // The id is read at click time, not captured now: a message sent moments
+    // ago gets its id from the stream, slightly after it appears on screen.
+    edit.addEventListener("click", () => startEdit(message, el));
+
+    actions.append(edit);
+    el.append(bubble, actions);
     return el;
   }
 
@@ -766,8 +785,11 @@ async function send(text) {
 
   if (els.transcript.querySelector(".empty")) els.transcript.replaceChildren();
 
-  state.messages.push({ role: "user", content: message });
-  els.transcript.append(buildMessage({ role: "user", content: message }));
+  // One object, used for both state and the DOM — so when the stream reports
+  // the stored id, the rendered Edit button is looking at the same message.
+  const entry = { role: "user", content: message };
+  state.messages.push(entry);
+  els.transcript.append(buildMessage(entry));
   scrollToEnd();
   updateToBottom();
   renderHeader();
@@ -832,6 +854,15 @@ async function consume(res) {
         const pinned = isPinnedToBottom();
         body.innerHTML = md(text) + '<span class="caret"></span>';
         if (pinned) scrollToEnd();
+      } else if (evt.type === "user") {
+        // The id of the message just stored, so it can be edited without a
+        // page reload. Attach it to the most recent user turn.
+        for (let i = state.messages.length - 1; i >= 0; i--) {
+          if (state.messages[i].role === "user") {
+            state.messages[i].id = evt.id;
+            break;
+          }
+        }
       } else if (evt.type === "artifacts") {
         ensureBubble();
         artifacts = evt.artifacts;
@@ -880,6 +911,93 @@ async function consume(res) {
     updateToBottom();
     refreshConversations().catch(() => {});
   }
+}
+
+/**
+ * Edit a message in place.
+ *
+ * Follows the inline-rename pattern, with one deliberate difference: renaming
+ * saves on blur, this does not. Submitting rewrites the conversation from this
+ * point and discards every later turn, so it takes an explicit Enter or Save —
+ * clicking away must never destroy history by accident.
+ */
+function startEdit(message, el) {
+  if (state.busy || el.querySelector(".msg__edit")) return;
+
+  if (!message.id) {
+    toast("Still saving — try again in a moment");
+    return;
+  }
+
+  const bubble = el.querySelector(".msg__bubble");
+  const actions = el.querySelector(".msg__actions");
+
+  const field = document.createElement("textarea");
+  field.className = "msg__edit";
+  field.value = message.content;
+  field.rows = 1;
+  field.setAttribute("aria-label", "Edit your message");
+
+  const bar = document.createElement("div");
+  bar.className = "msg__edit-actions";
+  bar.innerHTML = `
+    <button type="button" class="act" data-cancel>Cancel</button>
+    <button type="button" class="act act--primary" data-save>Save &amp; resend</button>
+  `;
+
+  bubble.hidden = true;
+  actions.hidden = true;
+  bubble.after(field, bar);
+
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
+
+  const close = () => {
+    field.remove();
+    bar.remove();
+    bubble.hidden = false;
+    actions.hidden = false;
+  };
+
+  const submit = () => {
+    const value = field.value.trim();
+    if (!value) return;
+    if (value === message.content) return close(); // nothing changed
+    close();
+    submitEdit(message, value);
+  };
+
+  field.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submit();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+      el.querySelector("[data-edit]")?.focus(); // return focus where it came from
+    }
+  });
+
+  bar.querySelector("[data-cancel]").addEventListener("click", close);
+  bar.querySelector("[data-save]").addEventListener("click", submit);
+}
+
+/** Replace a message and everything after it, then answer again. */
+async function submitEdit(message, text) {
+  if (state.busy || !state.currentId) return;
+
+  const index = state.messages.indexOf(message);
+  if (index === -1) return;
+
+  // Mirror server-side truncation: everything from here on is being replaced.
+  state.messages.splice(index);
+  state.messages.push({ role: "user", content: text });
+  renderTranscript();
+
+  await stream(
+    `/api/conversations/${state.currentId}/messages/${message.id}`,
+    { message: text },
+  );
 }
 
 /**

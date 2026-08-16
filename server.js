@@ -208,9 +208,54 @@ app.post("/api/conversations/:id/messages", askLimit, async (req, res) => {
   if (!message) return res.status(400).json({ error: "Message is empty." });
 
   const isFirstExchange = store.getMessages(conversation.id).length === 0;
-  store.addMessage(conversation.id, "user", message);
+  const userMessageId = store.addMessage(conversation.id, "user", message);
 
   openStream(res);
+  // The browser needs this id to offer Edit on a message it just sent.
+  sendEvent(res, { type: "user", id: userMessageId });
+  await streamInto(res, conversation, req.sessionId, {
+    isFirstExchange,
+    question: message,
+  });
+});
+
+/**
+ * Edit a message already sent, then answer again from that point.
+ *
+ * Editing rewrites history: the edited message and everything after it is
+ * removed, the new text is stored, and the reply is re-streamed through the
+ * same `streamInto` the other two endpoints use.
+ */
+app.post("/api/conversations/:id/messages/:messageId", askLimit, async (req, res) => {
+  const conversation = store.getConversation(req.params.id, req.sessionId);
+  if (!conversation) return res.status(404).json({ error: "Not found." });
+
+  const messageId = Number(req.params.messageId);
+  if (!Number.isInteger(messageId) || messageId < 1) {
+    return res.status(400).json({ error: "Bad message id." });
+  }
+
+  // Scoped to this conversation, which is itself scoped to this session — so a
+  // message id belonging to another visitor resolves to nothing, not to their
+  // message.
+  const target = store.getMessage(messageId, conversation.id);
+  if (!target) return res.status(404).json({ error: "Not found." });
+  if (target.role !== "user") {
+    return res.status(400).json({ error: "Only your own messages can be edited." });
+  }
+
+  const message = String(req.body?.message ?? "").trim();
+  if (!message) return res.status(400).json({ error: "Message is empty." });
+
+  // If the opening question is being rewritten, the title should follow it.
+  const turns = store.getMessages(conversation.id);
+  const isFirstExchange = turns[0]?.id === messageId;
+
+  store.deleteMessagesFrom(conversation.id, messageId);
+  const newMessageId = store.addMessage(conversation.id, "user", message);
+
+  openStream(res);
+  sendEvent(res, { type: "user", id: newMessageId });
   await streamInto(res, conversation, req.sessionId, {
     isFirstExchange,
     question: message,

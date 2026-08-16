@@ -617,14 +617,67 @@ button {
   animation: rise 320ms var(--ease) both;
 }
 
+/* A column, not the bubble itself — the bubble is now a child so the Edit
+   action can sit outside it, the way Copy/Regenerate sit under a reply. */
 .msg--user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   align-self: flex-end;
   max-width: 46ch;
+  width: 100%;
+}
+
+.msg__bubble {
   padding: var(--s-3) var(--s-4);
   border-radius: var(--r-lg);
   background: var(--surface-hi);
   color: var(--ink);
   white-space: pre-wrap;
+}
+
+.msg__bubble[hidden] {
+  display: none;
+}
+
+.msg--user .msg__actions {
+  justify-content: flex-end;
+}
+
+.msg--user .msg__actions[hidden] {
+  display: none;
+}
+
+/* --- Inline message editing ----------------------------------------------- */
+
+.msg__edit {
+  width: 100%;
+  min-width: min(46ch, 60vw);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid color-mix(in oklch, var(--accent) 60%, transparent);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  field-sizing: content;
+}
+
+.msg__edit-actions {
+  display: flex;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+}
+
+.act--primary {
+  background: color-mix(in oklch, var(--accent) 18%, transparent);
+  color: var(--ink);
+}
+
+.act--primary:hover {
+  background: color-mix(in oklch, var(--accent) 28%, transparent);
 }
 
 .msg--bot {
@@ -810,7 +863,7 @@ button {
   transition: opacity var(--dur) var(--ease);
 }
 
-.msg--bot:hover .msg__actions,
+.msg:hover .msg__actions,
 .msg__actions:focus-within {
   opacity: 1;
 }
