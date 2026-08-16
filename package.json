@@ -1,7 +1,7 @@
 {
-  "name": "history-bot",
+  "name": "vestige",
   "version": "1.0.0",
-  "description": "A chat interface for history questions, with per-era personas.",
+  "description": "Vestige — ask the past. A chat interface for history questions, with per-era personas.",
   "type": "module",
   "engines": {
     "node": ">=22"

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Vestige">
+  <!-- A bare footprint: a vestige is a trace something left behind.
+       This file is loaded as a separate document by the browser, so it cannot
+       read accent or any other custom property from the page. The fill is
+       therefore hardcoded; the in-page copy of this mark lives as a <symbol>
+       in index.html and does follow the era colour. -->
+  <g fill="#f2f0eb">
+    <ellipse cx="8.6" cy="7.2" rx="2.6" ry="3" />
+    <ellipse cx="13.3" cy="5" rx="1.95" ry="2.35" />
+    <ellipse cx="17.4" cy="4.6" rx="1.85" ry="2.25" />
+    <ellipse cx="21.2" cy="5.4" rx="1.7" ry="2.05" />
+    <ellipse cx="24.4" cy="7.2" rx="1.5" ry="1.8" />
+    <ellipse cx="16.4" cy="14.8" rx="8.4" ry="5.5" />
+    <ellipse cx="17" cy="26" rx="5.6" ry="4.6" />
+  </g>
+</svg>

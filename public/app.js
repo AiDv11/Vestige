@@ -1,5 +1,5 @@
 // ===========================================================================
-// HISTORY BOT — client
+// VESTIGE — client
 // The server owns storage and the model; this file owns what's on screen.
 // ===========================================================================
 
@@ -550,7 +550,13 @@ function renderEmpty() {
   const wrap = document.createElement("div");
   wrap.className = "empty";
   wrap.innerHTML = `
-    <h2 class="empty__title">Ask the past</h2>
+    <div class="empty__brand">
+      <svg class="empty__mark" aria-hidden="true" focusable="false">
+        <use href="#vestige-mark" />
+      </svg>
+      <h2 class="empty__name">Vestige</h2>
+      <span class="empty__tag">ask the past</span>
+    </div>
     <p class="empty__sub">
       Pick an era and the assistant takes on that period's expertise. Follow-up
       questions keep their context — ask “when did he die?” and it'll know who
@@ -622,7 +628,7 @@ function renderHeader() {
   applyEra(activeEra());
 
   // So several open tabs are tellable apart.
-  document.title = convo ? `${convo.title} — History Bot` : "History Bot — ask the past";
+  document.title = convo ? `${convo.title} — Vestige` : "Vestige — ask the past";
 }
 
 /** The jump-to-latest button only earns its space when you've scrolled away. */

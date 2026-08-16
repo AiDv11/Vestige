@@ -1,4 +1,6 @@
-# History Bot
+# Vestige
+
+**ask the past**
 
 A chat interface for history questions. Pick an era — Ancient Rome, Egypt,
 Medieval Europe, WWII — and the assistant adopts that period's expertise. The

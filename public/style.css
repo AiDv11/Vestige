@@ -1,5 +1,5 @@
 /* ===========================================================================
-   HISTORY BOT
+   VESTIGE
    The shell is a neutral instrument. The selected era supplies the colour,
    the surface tint, and the display typeface. See PRODUCT.md.
    =========================================================================== */
@@ -223,37 +223,49 @@ button {
   padding: var(--s-2) var(--s-2) 0;
 }
 
+/* Holds the <symbol> definition only — never rendered itself. Kept out of
+   flow rather than display:none, which some engines treat as a reason not to
+   resolve <use> references. */
+.sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
 .brand {
   display: flex;
-  align-items: center;
-  gap: var(--s-3);
+  align-items: baseline;
+  gap: var(--s-2);
   margin: 0;
   font-size: var(--step-1);
   font-weight: 600;
   letter-spacing: -0.015em;
 }
 
-.brand__thin {
-  color: var(--ink-low);
-  font-weight: 400;
+/* The wordmark deliberately does NOT use --font-display. The era supplies the
+   colour that moves; the product's own name is chrome and stays put. A name
+   that reshaped itself into a slab serif on hovering Egypt would read as a
+   bug, not as a theme. */
+.brand__name {
+  color: var(--ink);
 }
 
+.brand__tag {
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--ink-low);
+}
+
+/* The mark is the one part of the lockup that follows the era, exactly like
+   the conversation dots. */
 .brand__mark {
   width: 18px;
   height: 18px;
-  border: 2px solid var(--accent);
-  border-radius: 50%;
   flex: none;
-  position: relative;
-}
-
-.brand__mark::after {
-  content: "";
-  position: absolute;
-  inset: 3px 3px auto auto;
-  width: 2px;
-  height: 5px;
-  background: var(--accent);
+  fill: var(--accent);
+  align-self: center;
 }
 
 .new-chat {
@@ -893,14 +905,34 @@ button {
   animation: rise 420ms var(--ease) both;
 }
 
-.empty__title {
-  margin: 0 0 var(--s-3);
-  font-family: var(--font-display);
-  font-size: clamp(2.5rem, 5.5vw, 3.75rem);
-  font-weight: var(--display-weight);
-  line-height: 0.98;
-  letter-spacing: var(--display-tracking);
-  text-wrap: balance;
+/* The brand lockup, stacked and centred. Same reasoning as the sidebar: the
+   mark carries the era colour, the wordmark stays neutral. */
+.empty__brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-5);
+  text-align: center;
+}
+
+.empty__mark {
+  width: 52px;
+  height: 52px;
+  fill: var(--accent);
+}
+
+.empty__name {
+  margin: 0;
+  font-size: clamp(2.25rem, 5vw, 3.25rem);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.empty__tag {
+  font-size: var(--step-0);
+  color: var(--ink-low);
 }
 
 .empty__sub {
@@ -1360,8 +1392,17 @@ button {
     bottom: 88px;
   }
 
-  .empty__title {
-    font-size: clamp(2rem, 10vw, 2.75rem);
+  .empty__name {
+    font-size: clamp(1.875rem, 9vw, 2.5rem);
+  }
+
+  .empty__mark {
+    width: 44px;
+    height: 44px;
+  }
+
+  .brand__tag {
+    display: none; /* the drawer header is tight; the mark carries it */
   }
 
   .era-picker {
