@@ -18,8 +18,7 @@ const els = {
   transcript: $("[data-transcript]"),
   form: $("[data-form]"),
   input: $("[data-input]"),
-  send: $("[data-send]"),
-  stop: $("[data-stop]"),
+  action: $("[data-action]"),
   toBottom: $("[data-to-bottom]"),
   announcer: $("[data-announcer]"),
   menuPop: $("[data-menu-pop]"),
@@ -865,6 +864,17 @@ function renderHeader() {
 }
 
 /** The jump-to-latest button only earns its space when you've scrolled away. */
+/**
+ * Swap the composer's single control between sending and aborting.
+ *
+ * The element never changes, only its state — so keyboard focus survives the
+ * swap, and there is no moment where both controls exist.
+ */
+function setActionState(streaming) {
+  els.action.dataset.state = streaming ? "abort" : "send";
+  els.action.setAttribute("aria-label", streaming ? "Stop generating" : "Send");
+}
+
 function updateToBottom() {
   const scrollable =
     els.transcript.scrollHeight - els.transcript.clientHeight > 40;
@@ -1044,8 +1054,7 @@ async function stream(url, payload) {
 /** Shared stream consumer for both send and regenerate. */
 async function consume(res) {
   state.busy = true;
-  els.send.disabled = true;
-  els.stop.hidden = false;
+  setActionState(true);
 
   // The stream now outlives the reply: artifacts arrive after `done`. So the
   // composer is released when the answer is finished, not when the connection
@@ -1061,8 +1070,7 @@ async function consume(res) {
     if (state.controller !== myController) return;
     state.busy = false;
     state.controller = null;
-    els.send.disabled = false;
-    els.stop.hidden = true;
+    setActionState(false);
     els.input.focus();
   };
 
@@ -1081,14 +1089,68 @@ async function consume(res) {
     els.transcript.append(bubble);
   };
 
+  // --- paced rendering -----------------------------------------------------
+  //
+  // Tokens arrive from the network in bursts, and painting each one as it
+  // lands reads as jitter. The stream itself is untouched — everything
+  // received is kept — but the DOM is written on animation frames, revealing
+  // a share of the outstanding backlog each time.
+  //
+  // Revealing a *fraction* rather than a fixed number of characters is what
+  // keeps this from adding time: a large burst drains fast, a trickle stays a
+  // trickle, and the reveal can never fall behind the stream. `done` paints
+  // the full text immediately regardless, so the reply finishes exactly when
+  // the stream does.
+
+  const paced = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let shown = 0;
+  let frame = null;
+
+  const paint = (upto, streaming) => {
+    if (!body) return;
+    const pinned = isPinnedToBottom();
+    body.innerHTML = streaming
+      ? md(text.slice(0, upto)) + '<span class="caret"></span>'
+      : md(text.slice(0, upto));
+    if (pinned) scrollToEnd();
+  };
+
+  const step = () => {
+    frame = null;
+    const remaining = text.length - shown;
+    if (remaining <= 0) return;
+
+    shown = Math.min(text.length, shown + Math.max(1, Math.ceil(remaining / 6)));
+    paint(shown, true);
+
+    if (shown < text.length) schedule();
+  };
+
+  const schedule = () => {
+    if (frame === null) frame = requestAnimationFrame(step);
+  };
+
+  /** Stop pacing and jump to the full text — used on done, abort and error. */
+  const settle = () => {
+    if (frame !== null) {
+      cancelAnimationFrame(frame);
+      frame = null;
+    }
+    shown = text.length;
+  };
+
   try {
     await readStream(res, (evt) => {
       if (evt.type === "delta") {
         ensureBubble();
         text += evt.text;
-        const pinned = isPinnedToBottom();
-        body.innerHTML = md(text) + '<span class="caret"></span>';
-        if (pinned) scrollToEnd();
+        if (paced) {
+          schedule();
+        } else {
+          // Reduced motion: no staged reveal, paint what has arrived.
+          shown = text.length;
+          paint(shown, true);
+        }
       } else if (evt.type === "user") {
         // The id of the message just stored, so it can be edited without a
         // page reload. Attach it to the most recent user turn.
@@ -1108,7 +1170,8 @@ async function consume(res) {
         if (isPinnedToBottom()) scrollToEnd();
       } else if (evt.type === "done") {
         ensureBubble();
-        body.innerHTML = md(text);
+        settle();
+        paint(text.length, false);
         assistantEntry = { role: "assistant", content: text, artifacts };
         state.messages.push(assistantEntry);
         // The answer is complete; the stream stays open only for artifacts.
@@ -1134,7 +1197,9 @@ async function consume(res) {
     });
   } catch (err) {
     if (err.name === "AbortError") {
-      if (body) body.innerHTML = md(text);
+      // Keep whatever streamed in before the user hit stop, in full.
+      settle();
+      paint(text.length, false);
       if (text) state.messages.push({ role: "assistant", content: text, artifacts });
     } else {
       bubble?.remove();
@@ -1143,6 +1208,7 @@ async function consume(res) {
       );
     }
   } finally {
+    settle(); // never leave a frame scheduled against a dead stream
     stopThinking();
     releaseInput(); // no-op if `done` already released it
     if (isPinnedToBottom()) scrollToEnd();
@@ -1275,7 +1341,11 @@ els.input.addEventListener("keydown", (e) => {
   }
 });
 
-els.stop.addEventListener("click", () => state.controller?.abort());
+// One control: it aborts while a reply is streaming, and sends otherwise.
+els.action.addEventListener("click", () => {
+  if (state.busy) state.controller?.abort();
+  else send(els.input.value);
+});
 
 els.newChat.addEventListener("click", startNewChat);
 

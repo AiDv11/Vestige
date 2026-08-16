@@ -183,31 +183,43 @@
             autocomplete="off"
           ></textarea>
 
+          <!-- One control, two states. Two separate buttons meant the visible
+               one depended on the `hidden` attribute winning against CSS —
+               which it didn't, because `display: grid` overrides it. With a
+               single button, showing both is not expressible. Keeping the same
+               element across states also keeps focus, which toggling two
+               buttons would destroy. -->
           <button
             type="button"
-            class="composer__stop"
-            data-stop
-            hidden
-            aria-label="Stop generating"
+            class="composer__action"
+            data-action
+            data-state="send"
+            aria-label="Send"
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <svg
+              class="composer__icon composer__icon--send"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path
+                d="M5 12h13m0 0-5.5-5.5M18 12l-5.5 5.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <svg
+              class="composer__icon composer__icon--abort"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              focusable="false"
+            >
               <rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" />
             </svg>
           </button>
-
-            <button type="submit" class="composer__send" data-send>
-              <span class="sr-only">Send</span>
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path
-                  d="M5 12h13m0 0-5.5-5.5M18 12l-5.5 5.5"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
-            </button>
           </form>
         </div>
       </main>

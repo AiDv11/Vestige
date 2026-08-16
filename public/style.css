@@ -1259,8 +1259,10 @@ button {
   color: var(--ink-low);
 }
 
-.composer__send,
-.composer__stop {
+/* Send while idle, abort while streaming — one button, never both. The two
+   icons share a single grid cell and exactly one is displayed, so the state
+   attribute alone decides what you see. */
+.composer__action {
   display: grid;
   place-items: center;
   width: 34px;
@@ -1270,37 +1272,41 @@ button {
   border-radius: var(--r-md);
   cursor: pointer;
   transition:
-    opacity var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease),
     transform var(--dur) var(--ease);
 }
 
-.composer__send {
-  background: var(--accent);
-  color: oklch(0.14 0 0);
-}
-
-.composer__send svg,
-.composer__stop svg {
+.composer__icon {
+  grid-area: 1 / 1;
   width: 18px;
   height: 18px;
 }
 
-.composer__send:hover:not(:disabled) {
+.composer__action[data-state="send"] {
+  background: var(--accent);
+  color: oklch(0.14 0 0);
+}
+
+.composer__action[data-state="send"]:hover {
   transform: translateX(1px);
 }
 
-.composer__send:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
+.composer__action[data-state="send"] .composer__icon--abort {
+  display: none;
 }
 
-.composer__stop {
+.composer__action[data-state="abort"] {
   background: var(--surface-hi);
   color: var(--ink);
 }
 
-.composer__stop:hover {
+.composer__action[data-state="abort"]:hover {
   background: var(--line-hi);
+}
+
+.composer__action[data-state="abort"] .composer__icon--send {
+  display: none;
 }
 
 /* --- Row menu ------------------------------------------------------------- */
