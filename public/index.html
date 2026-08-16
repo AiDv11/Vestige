@@ -155,21 +155,24 @@
           <!-- injected by app.js -->
         </div>
 
-        <button type="button" class="to-bottom" data-to-bottom hidden>
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path
-              d="M12 5v14m0 0 6-6m-6 6-6-6"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-          Latest
-        </button>
+        <!-- The jump button is docked to the composer rather than floated over
+             the transcript, so it can never sit on top of a message. -->
+        <div class="composer-dock">
+          <button type="button" class="to-bottom" data-to-bottom hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                d="M12 5v14m0 0 6-6m-6 6-6-6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            Latest
+          </button>
 
-        <form class="composer" data-form>
+          <form class="composer" data-form>
           <label class="sr-only" for="prompt">Ask a history question</label>
           <textarea
             id="prompt"
@@ -192,20 +195,21 @@
             </svg>
           </button>
 
-          <button type="submit" class="composer__send" data-send>
-            <span class="sr-only">Send</span>
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path
-                d="M5 12h13m0 0-5.5-5.5M18 12l-5.5 5.5"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
-          </button>
-        </form>
+            <button type="submit" class="composer__send" data-send>
+              <span class="sr-only">Send</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path
+                  d="M5 12h13m0 0-5.5-5.5M18 12l-5.5 5.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </form>
+        </div>
       </main>
     </div>
 

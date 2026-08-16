@@ -576,9 +576,18 @@ button {
 
 /* --- Scroll to latest ----------------------------------------------------- */
 
+/* The dock owns the composer's outer spacing, so the jump button can anchor to
+   the composer's real top edge — the composer grows with its textarea, so a
+   fixed offset from the bottom of the screen would drift over the transcript. */
+.composer-dock {
+  position: relative;
+  margin-inline: var(--gutter);
+  margin-bottom: var(--s-5);
+}
+
 .to-bottom {
   position: absolute;
-  bottom: 96px;
+  bottom: calc(100% + var(--s-2));
   left: 50%;
   translate: -50% 0;
   z-index: var(--z-sticky);
@@ -1010,37 +1019,65 @@ button {
   margin-bottom: var(--s-6);
 }
 
+/* A wrapper, not a button: custom eras carry their own delete button, and
+   nesting buttons is invalid HTML. */
 .era-opt {
+  position: relative;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--s-3);
+  align-items: stretch;
   border: 1px solid var(--line-hi);
   border-radius: var(--r-md);
-  background: none;
   color: var(--ink-mid);
-  text-align: left;
-  cursor: pointer;
   transition:
     border-color var(--dur) var(--ease),
     background var(--dur) var(--ease),
     color var(--dur) var(--ease);
 }
 
-.era-opt:hover {
+.era-opt:hover,
+.era-opt:focus-within {
   color: var(--ink);
   border-color: color-mix(in oklch, var(--accent) 55%, transparent);
   background: color-mix(in oklch, var(--accent) 10%, transparent);
 }
 
-.era-opt[aria-pressed="true"] {
+.era-opt[data-selected="true"] {
   color: var(--ink);
   border-color: color-mix(in oklch, var(--accent) 70%, transparent);
   background: color-mix(in oklch, var(--accent) 16%, transparent);
 }
 
+.era-opt__choose {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  padding: var(--s-3);
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .era-opt__name {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
   font-weight: 500;
+}
+
+/* Custom eras carry a dot in their own generated hue — the same signal the
+   conversation list uses, so they read as "yours" without a second colour
+   system. Set inline from the validated integer hue. */
+.era-opt__dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--era-dot, var(--ink-low));
 }
 
 .era-opt__years {
@@ -1049,8 +1086,115 @@ button {
   color: var(--ink-low);
 }
 
-.era-opt[aria-pressed="true"] .era-opt__years {
+.era-opt[data-selected="true"] .era-opt__years {
   color: color-mix(in oklch, var(--accent) 75%, var(--ink));
+}
+
+/* Shown when the era matched no Met department, so it ships with artifacts off. */
+.era-opt__noart {
+  font-family: var(--font-ui);
+  font-size: 0.6875rem;
+  color: var(--ink-low);
+}
+
+.era-opt__remove {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  flex: none;
+  border: 0;
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  background: none;
+  color: var(--ink-low);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.era-opt__remove svg {
+  width: 14px;
+  height: 14px;
+}
+
+.era-opt:hover .era-opt__remove,
+.era-opt__remove:focus-visible {
+  opacity: 1;
+}
+
+.era-opt__remove:hover {
+  color: var(--danger);
+}
+
+@media (hover: none) {
+  .era-opt__remove {
+    opacity: 1;
+  }
+}
+
+/* --- Add an era ----------------------------------------------------------- */
+
+.era-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border: 1px dashed var(--line-hi);
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--ink-low);
+  font-size: var(--step--1);
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.era-add:hover {
+  border-color: color-mix(in oklch, var(--accent) 55%, transparent);
+  color: var(--ink);
+}
+
+.era-add svg {
+  width: 14px;
+  height: 14px;
+}
+
+.era-new {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: var(--s-2);
+  align-items: center;
+}
+
+.era-new__input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--s-3);
+  border: 1px solid color-mix(in oklch, var(--accent) 60%, transparent);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--step--1);
+  outline: none;
+}
+
+.era-new__input::placeholder {
+  color: var(--ink-low);
+}
+
+.era-new__note {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--ink-low);
+}
+
+.era-new__note--error {
+  color: oklch(0.78 0.13 25);
 }
 
 .starters {
@@ -1085,8 +1229,7 @@ button {
   display: flex;
   align-items: flex-end;
   gap: var(--s-2);
-  margin-block: 0 var(--s-5);
-  margin-inline: var(--gutter);
+  margin: 0; /* the dock positions it */
   padding: var(--s-3);
   border: 1px solid var(--line-hi);
   border-radius: var(--r-lg);
@@ -1437,12 +1580,8 @@ button {
     opacity: 1;
   }
 
-  .composer {
+  .composer-dock {
     margin-bottom: var(--s-4);
-  }
-
-  .to-bottom {
-    bottom: 88px;
   }
 
   .empty__name {

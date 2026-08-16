@@ -29,14 +29,28 @@ const els = {
   confirmCancel: $("[data-confirm-cancel]"),
 };
 
-// Display face per era, fetched on first use — the initial page load costs
-// zero webfonts. "all" has no entry because it uses the system stack.
-const FONTS = {
-  rome: "Cormorant+Garamond:wght@700",
-  egypt: "Zilla+Slab:wght@600",
-  medieval: "Cardo:wght@700",
-  islamic: "Amiri:wght@700",
-  song: "Source+Serif+4:wght@600",
+// The typeface whitelist, mirroring lib/eras.js. A custom era stores a KEY
+// from this map, never a font name — the `spec` becomes a stylesheet URL, so
+// free text here would be an injection point.
+const FONT_CHOICES = {
+  cormorant: { family: "Cormorant Garamond", spec: "Cormorant+Garamond:wght@700" },
+  slab: { family: "Zilla Slab", spec: "Zilla+Slab:wght@600" },
+  cardo: { family: "Cardo", spec: "Cardo:wght@700" },
+  amiri: { family: "Amiri", spec: "Amiri:wght@700" },
+  "source-serif": { family: "Source Serif 4", spec: "Source+Serif+4:wght@600" },
+  oswald: { family: "Oswald", spec: "Oswald:wght@600" },
+  spectral: { family: "Spectral", spec: "Spectral:wght@600" },
+  bitter: { family: "Bitter", spec: "Bitter:wght@600" },
+};
+
+// Which face each built-in era uses. "all" has no entry — it keeps the system
+// stack, so the initial page load still costs zero webfonts.
+const ERA_FONT = {
+  rome: "cormorant",
+  egypt: "slab",
+  medieval: "cardo",
+  islamic: "amiri",
+  song: "source-serif",
 };
 
 const THINKING = {
@@ -112,15 +126,25 @@ const activeEra = () => {
 
 // --- fonts ------------------------------------------------------------------
 
-function loadEraFont(id) {
-  const spec = FONTS[id];
-  if (!spec || loadedFonts.has(id)) return;
-  loadedFonts.add(id);
+function loadFont(key) {
+  const choice = FONT_CHOICES[key];
+  if (!choice || loadedFonts.has(key)) return;
+  loadedFonts.add(key);
 
   const link = document.createElement("link");
   link.rel = "stylesheet";
-  link.href = `https://fonts.googleapis.com/css2?family=${spec}&display=swap`;
+  link.href = `https://fonts.googleapis.com/css2?family=${choice.spec}&display=swap`;
   document.head.append(link);
+}
+
+/** A built-in era's face comes from the table; a custom era carries its key. */
+function fontKeyFor(eraId) {
+  const era = eraById(eraId);
+  return era?.custom ? era.font : (ERA_FONT[eraId] ?? null);
+}
+
+function loadEraFont(eraId) {
+  loadFont(fontKeyFor(eraId));
 }
 
 // --- markdown ---------------------------------------------------------------
@@ -192,10 +216,42 @@ function toast(message) {
   setTimeout(() => el.remove(), 2200);
 }
 
+// Set inline for a custom era; cleared for built-ins so the [data-era] rules
+// in the stylesheet take over again.
+const THEMED = [
+  "--accent",
+  "--tint",
+  "--tint-hi",
+  "--font-display",
+  "--display-weight",
+  "--display-tracking",
+];
+
 function applyEra(id) {
-  document.documentElement.dataset.era = id;
-  loadEraFont(id);
   const era = eraById(id);
+  const root = document.documentElement;
+
+  if (era?.custom) {
+    // The hue was range-checked server-side; re-normalise anyway, because it's
+    // about to be interpolated into a CSS colour.
+    const hue = ((Number(era.hue) % 360) + 360) % 360 || 0;
+    const family = FONT_CHOICES[era.font]?.family;
+
+    root.dataset.era = "custom";
+    root.style.setProperty("--accent", `oklch(0.66 0.15 ${hue})`);
+    root.style.setProperty("--tint", `oklch(0.09 0.008 ${hue})`);
+    root.style.setProperty("--tint-hi", `oklch(0.13 0.012 ${hue})`);
+    root.style.setProperty("--display-weight", "600");
+    root.style.setProperty("--display-tracking", "-0.02em");
+    if (family) {
+      root.style.setProperty("--font-display", `"${family}", Georgia, serif`);
+    }
+  } else {
+    root.dataset.era = id;
+    for (const prop of THEMED) root.style.removeProperty(prop);
+  }
+
+  loadEraFont(id);
   if (era) els.eraLabel.textContent = era.label;
 }
 
@@ -583,47 +639,205 @@ function renderEmpty() {
     </p>
     <p class="empty__label">Era</p>
     <div class="era-picker"></div>
-    <p class="empty__label">Try one</p>
+    <p class="empty__label" data-starters-label>Try one</p>
     <div class="starters"></div>
   `;
 
   const picker = wrap.querySelector(".era-picker");
-  state.eras.forEach((era) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "era-opt";
-    b.setAttribute("aria-pressed", String(era.id === state.draftEra));
-    b.innerHTML = `
-      <span class="era-opt__name">${era.label}</span>
-      <span class="era-opt__years">${era.blurb}</span>
-    `;
-    // Hovering previews the era's colour before you commit to it.
-    b.addEventListener("pointerenter", () => {
-      loadEraFont(era.id);
-      document.documentElement.dataset.era = era.id;
-    });
-    b.addEventListener("pointerleave", () => {
-      document.documentElement.dataset.era = state.draftEra;
-    });
-    b.addEventListener("click", () => {
-      state.draftEra = era.id;
-      applyEra(era.id);
-      renderTranscript();
-    });
-    picker.append(b);
-  });
+  state.eras.forEach((era) => picker.append(buildEraOption(era)));
+  picker.append(buildAddEra(picker));
 
+  // Built-in eras have hand-written openers; a generated era doesn't, and
+  // inventing generic ones would undercut the point of the era mechanic.
+  const starters = STARTERS[state.draftEra] || [];
   const row = wrap.querySelector(".starters");
-  (STARTERS[state.draftEra] || []).forEach((q) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "starter";
-    b.textContent = q;
-    b.addEventListener("click", () => send(q));
-    row.append(b);
-  });
+  const startersLabel = wrap.querySelector("[data-starters-label]");
+
+  if (starters.length === 0) {
+    startersLabel.remove();
+    row.remove();
+  } else {
+    starters.forEach((q) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "starter";
+      b.textContent = q;
+      b.addEventListener("click", () => send(q));
+      row.append(b);
+    });
+  }
 
   els.transcript.append(wrap);
+}
+
+/**
+ * One option in the era picker.
+ *
+ * Every label and blurb is set with textContent. For a custom era these are
+ * model-written strings, so they are treated exactly like model output
+ * anywhere else in this file: never interpolated into HTML.
+ */
+function buildEraOption(era) {
+  const wrap = document.createElement("div");
+  wrap.className = era.custom ? "era-opt era-opt--custom" : "era-opt";
+  wrap.dataset.selected = String(era.id === state.draftEra);
+
+  const choose = document.createElement("button");
+  choose.type = "button";
+  choose.className = "era-opt__choose";
+  choose.setAttribute("aria-pressed", String(era.id === state.draftEra));
+
+  const name = document.createElement("span");
+  name.className = "era-opt__name";
+
+  if (era.custom) {
+    const dot = document.createElement("span");
+    dot.className = "era-opt__dot";
+    const hue = ((Number(era.hue) % 360) + 360) % 360 || 0;
+    dot.style.setProperty("--era-dot", `oklch(0.66 0.15 ${hue})`);
+    name.append(dot);
+  }
+
+  name.append(document.createTextNode(era.label));
+
+  const years = document.createElement("span");
+  years.className = "era-opt__years";
+  years.textContent = era.blurb;
+
+  choose.append(name, years);
+
+  // The Met has no department for every period; when none fitted, the era
+  // ships with artifacts off and says so rather than showing wrong objects.
+  if (era.custom && !era.hasArtifacts) {
+    const note = document.createElement("span");
+    note.className = "era-opt__noart";
+    note.textContent = "no museum objects";
+    choose.append(note);
+  }
+
+  // Hovering previews the era — including a custom era's generated colour.
+  wrap.addEventListener("pointerenter", () => applyEra(era.id));
+  wrap.addEventListener("pointerleave", () => applyEra(state.draftEra));
+
+  choose.addEventListener("click", () => {
+    state.draftEra = era.id;
+    applyEra(era.id);
+    renderTranscript();
+  });
+
+  wrap.append(choose);
+
+  if (era.custom) {
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "era-opt__remove";
+    remove.setAttribute("aria-label", `Delete the ${era.label} era`);
+    remove.innerHTML = `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" />
+      </svg>
+    `;
+    remove.addEventListener("click", () => removeEra(era));
+    wrap.append(remove);
+  }
+
+  return wrap;
+}
+
+/** The "Add era" affordance, which swaps itself for a small form. */
+function buildAddEra(picker) {
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "era-add";
+  add.innerHTML = `
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" />
+    </svg>
+    Add era
+  `;
+  add.addEventListener("click", () => {
+    add.replaceWith(buildEraForm(picker));
+    picker.querySelector(".era-new__input")?.focus();
+  });
+  return add;
+}
+
+function buildEraForm(picker) {
+  const form = document.createElement("form");
+  form.className = "era-new";
+  form.innerHTML = `
+    <input class="era-new__input" type="text" maxlength="60" autocomplete="off"
+           placeholder="Name a period — e.g. the Mongol Empire"
+           aria-label="Name a historical period" />
+    <button type="submit" class="act act--primary" data-create>Create</button>
+    <button type="button" class="act" data-cancel>Cancel</button>
+  `;
+
+  const input = form.querySelector(".era-new__input");
+  const create = form.querySelector("[data-create]");
+  const note = document.createElement("p");
+  note.className = "era-new__note";
+
+  const say = (text, isError) => {
+    note.textContent = text;
+    note.classList.toggle("era-new__note--error", !!isError);
+    if (!note.isConnected) form.after(note);
+  };
+
+  form.querySelector("[data-cancel]").addEventListener("click", () => {
+    note.remove();
+    form.replaceWith(buildAddEra(picker));
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = input.value.trim();
+    if (!name) return;
+
+    input.disabled = true;
+    create.disabled = true;
+    say("Building the era — this takes a few seconds…", false);
+
+    try {
+      const era = await api("/api/eras", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+
+      state.eras.push(era);
+      state.draftEra = era.id;
+      applyEra(era.id);
+      renderTranscript(); // rebuilds the picker with the new era selected
+      toast(`${era.label} added`);
+    } catch (err) {
+      input.disabled = false;
+      create.disabled = false;
+      say(err.message, true);
+      input.focus();
+    }
+  });
+
+  return form;
+}
+
+async function removeEra(era) {
+  try {
+    await api(`/api/eras/${era.id}`, { method: "DELETE" });
+  } catch {
+    toast("Couldn't delete that era");
+    return;
+  }
+
+  state.eras = state.eras.filter((e) => e.id !== era.id);
+  // Conversations that used it still open: the server falls back to the
+  // default era for a key that no longer exists.
+  if (state.draftEra === era.id) state.draftEra = "all";
+  applyEra(state.draftEra);
+  renderTranscript();
+  renderConversations();
+  toast(`${era.label} deleted`);
 }
 
 function renderTranscript() {
@@ -654,7 +868,8 @@ function renderHeader() {
 function updateToBottom() {
   const scrollable =
     els.transcript.scrollHeight - els.transcript.clientHeight > 40;
-  els.toBottom.hidden = !scrollable || isPinnedToBottom();
+  const hasMessages = state.messages.length > 0;
+  els.toBottom.hidden = !hasMessages || !scrollable || isPinnedToBottom();
 }
 
 // --- thinking indicator -----------------------------------------------------

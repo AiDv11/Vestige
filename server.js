@@ -5,6 +5,14 @@ import { DEFAULT_ERA, isEra, publicEras } from "./lib/eras.js";
 import { generateTitle, streamReply } from "./lib/chat.js";
 import { findArtifacts } from "./lib/artifacts.js";
 import { rateLimit } from "./lib/rateLimit.js";
+import {
+  MAX_CUSTOM_ERAS,
+  generateEra,
+  publicCustomEras,
+  resolveEraFor,
+  sanitiseEraName,
+  takenHuesFor,
+} from "./lib/customEras.js";
 import * as store from "./lib/db.js";
 
 const app = express();
@@ -77,7 +85,7 @@ app.get("/healthz", (req, res) => {
 });
 
 app.get("/api/eras", (req, res) => {
-  res.json(publicEras());
+  res.json([...publicEras(), ...publicCustomEras(req.sessionId)]);
 });
 
 app.get("/api/conversations", (req, res) => {
@@ -97,9 +105,56 @@ app.get("/api/conversations/:id", (req, res) => {
 
 app.post("/api/conversations", writeLimit, (req, res) => {
   const era = req.body?.era ?? DEFAULT_ERA;
-  if (!isEra(era)) return res.status(400).json({ error: `Unknown era: ${era}` });
+
+  // A custom era counts only if it belongs to this visitor.
+  const known = isEra(era) || !!store.getCustomEra(era, req.sessionId);
+  if (!known) return res.status(400).json({ error: `Unknown era: ${era}` });
 
   res.status(201).json(store.createConversation(req.sessionId, era));
+});
+
+// ---------------------------------------------------------------------------
+// CUSTOM ERAS
+// The model writes the content; every field is validated against a closed set
+// in lib/customEras.js before it is stored or reaches the page.
+// ---------------------------------------------------------------------------
+
+app.post("/api/eras", askLimit, async (req, res) => {
+  const existing = store.listCustomEras(req.sessionId);
+  if (existing.length >= MAX_CUSTOM_ERAS) {
+    return res
+      .status(400)
+      .json({ error: `You can keep up to ${MAX_CUSTOM_ERAS} custom eras.` });
+  }
+
+  const cleaned = sanitiseEraName(req.body?.name);
+  if (!cleaned.ok) return res.status(400).json({ error: cleaned.error });
+
+  const result = await generateEra(cleaned.name, takenHuesFor(req.sessionId));
+  if (!result.ok) {
+    console.error("Era generation failed:", result.problems?.join(" | "));
+    return res.status(422).json({ error: result.error });
+  }
+
+  const saved = store.createCustomEra(req.sessionId, result.era);
+
+  res.status(201).json({
+    id: saved.id,
+    label: saved.label,
+    blurb: saved.blurb,
+    hue: saved.hue,
+    font: saved.font,
+    hasArtifacts: !!saved.met_department,
+    custom: true,
+  });
+});
+
+app.delete("/api/eras/:id", (req, res) => {
+  // Conversations that used it are left alone: resolveEraFor falls back to the
+  // default for a missing era, exactly as it does for the retired `ww2` key.
+  const removed = store.deleteCustomEra(req.params.id, req.sessionId);
+  if (!removed) return res.status(404).json({ error: "Not found." });
+  res.json({ ok: true });
 });
 
 app.patch("/api/conversations/:id", (req, res) => {
@@ -149,11 +204,15 @@ async function streamInto(res, conversation, sessionId, { isFirstExchange, quest
     controller.abort();
   });
 
+  // Resolve the stored key into a real era once. Built-in, this visitor's
+  // custom era, or — for a retired key or a deleted custom era — the default.
+  const era = resolveEraFor(conversation.era, sessionId);
+
   // Start the museum lookup immediately, so it runs while the model is still
-  // writing. By the time the reply finishes it's usually already resolved,
-  // which is why the feature costs the user no extra waiting.
+  // writing. A custom era with no Met department has no source, and this
+  // resolves to an empty array without a request.
   const artifactsPending = question
-    ? findArtifacts(conversation.era, question)
+    ? findArtifacts(era.source, question)
     : Promise.resolve([]);
 
   let full = "";
@@ -161,7 +220,7 @@ async function streamInto(res, conversation, sessionId, { isFirstExchange, quest
   try {
     const turns = store.getMessages(conversation.id);
 
-    for await (const piece of streamReply(conversation.era, turns, {
+    for await (const piece of streamReply(era, turns, {
       signal: controller.signal,
     })) {
       full += piece;
