@@ -504,7 +504,15 @@ button {
   background: var(--bg);
 }
 
-.chat__menu {
+/* The drawer toggle exists only below the breakpoint, where the sidebar is a
+   drawer and this is the sole way in. Above it the sidebar is always on
+   screen, so the toggle would do nothing.
+   Scoped to .chat__head deliberately: a bare `.chat__menu` ties with
+   `.icon-btn` on specificity and loses on source order, which is exactly how
+   it ended up visible on wide screens. `display: none` also keeps it out of
+   the tab order, and removes it from the header's flex layout so no gap
+   remains. */
+.chat__head .chat__menu {
   display: none;
 }
 
@@ -558,10 +566,6 @@ button {
 .icon-btn:hover {
   background: var(--surface-hi);
   color: var(--ink);
-}
-
-[data-delete]:hover {
-  color: var(--danger);
 }
 
 .transcript {
@@ -1551,7 +1555,7 @@ button {
     animation: fadeIn 200ms var(--ease);
   }
 
-  .chat__menu {
+  .chat__head .chat__menu {
     display: grid;
   }
 

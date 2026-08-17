@@ -342,6 +342,18 @@ If you add a feature, add checks in the same style, and:
 - Nested buttons are invalid HTML and break keyboard navigation. Where a row
   needs its own action — conversation rows, custom era options, user messages —
   the row is a `<div>` containing buttons, not a button itself.
+- **The `hidden` attribute is only `display: none` from the UA stylesheet, so
+  any author `display` rule overrides it — silently.** `el.hidden = true` then
+  does nothing and the element stays on screen. This has bitten repeatedly
+  here: `.msg__actions`, `.to-bottom` and `.icon-btn` all set `display`, and
+  the composer's old stop button shipped visible alongside Send because
+  `display: grid` beat its `hidden` attribute. When a component sets `display`
+  and is toggled with `hidden`, either pair it with an explicit
+  `&[hidden] { display: none }`, or make the states mutually exclusive by
+  construction — as the composer button now does, with one element, a
+  `data-state` attribute, and CSS displaying exactly one icon per state. The
+  second approach is better where it fits, because it makes the broken state
+  unexpressible rather than merely guarded against.
 - A standalone `.svg` file is XML, so a comment inside it can never contain a
   double hyphen — `public/favicon.svg` failed to parse because its comment
   mentioned a CSS custom property by name. Write "the accent variable", not the

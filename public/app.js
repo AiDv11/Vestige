@@ -14,7 +14,6 @@ const els = {
   convos: $("[data-convos]"),
   eraLabel: $("[data-era-label]"),
   convoTitle: $("[data-convo-title]"),
-  deleteBtn: $("[data-delete]"),
   transcript: $("[data-transcript]"),
   form: $("[data-form]"),
   input: $("[data-input]"),
@@ -856,7 +855,6 @@ function renderTranscript() {
 function renderHeader() {
   const convo = state.conversations.find((c) => c.id === state.currentId);
   els.convoTitle.textContent = convo ? convo.title : "New conversation";
-  els.deleteBtn.hidden = !state.currentId;
   applyEra(activeEra());
 
   // So several open tabs are tellable apart.
@@ -1051,6 +1049,39 @@ async function stream(url, payload) {
   }
 }
 
+// --- paced rendering -------------------------------------------------------
+//
+// Tokens arrive from the network in bursts, and painting each one as it lands
+// reads as jitter. The stream itself is untouched — every token is kept the
+// moment it arrives — but the DOM is written on animation frames, revealing a
+// share of the outstanding backlog each time.
+//
+// Revealing a *fraction* rather than a fixed number of characters is what
+// makes this self-correcting: a large burst drains fast, a trickle stays a
+// trickle, and the pace follows however fast the model happens to be.
+//
+// The reveal deliberately outlives the stream. When `done` arrives there is
+// still a backlog, and cutting to the full text there would land as a visible
+// snap — the one artefact this was meant to remove. So `done` lets the reveal
+// keep draining on its own; only abort and errors settle instantly, where
+// stopping *is* the point.
+//
+// THIS IS THE TUNING KNOB. It's the divisor: each frame paints one twelfth of
+// what's left to show, then one twelfth of the remainder, and so on.
+//
+//   Raise it  → slower, smoother, and a longer tail after the stream ends.
+//               Too high and the text visibly lags the answer.
+//   Lower it  → faster and closer to the raw stream, but burstier. Low enough
+//               and it reverts to the jitter this replaced.
+//
+// Tuned against a measured reply — 1276 characters in 1283 ms — so rendering
+// finishes at about 1.5x the stream's own duration, with a ~630 ms tail. That
+// tail stays roughly constant at any reply length, because the backlog depends
+// on how fast tokens arrive rather than on how many there are.
+//
+// Change this one number and hard-refresh.
+const REVEAL_SMOOTHNESS = 12;
+
 /** Shared stream consumer for both send and regenerate. */
 async function consume(res) {
   state.busy = true;
@@ -1089,40 +1120,36 @@ async function consume(res) {
     els.transcript.append(bubble);
   };
 
-  // --- paced rendering -----------------------------------------------------
-  //
-  // Tokens arrive from the network in bursts, and painting each one as it
-  // lands reads as jitter. The stream itself is untouched — everything
-  // received is kept — but the DOM is written on animation frames, revealing
-  // a share of the outstanding backlog each time.
-  //
-  // Revealing a *fraction* rather than a fixed number of characters is what
-  // keeps this from adding time: a large burst drains fast, a trickle stays a
-  // trickle, and the reveal can never fall behind the stream. `done` paints
-  // the full text immediately regardless, so the reply finishes exactly when
-  // the stream does.
-
+  // See REVEAL_SMOOTHNESS at the top of this file for how the pacing works and
+  // which number to change.
   const paced = !matchMedia("(prefers-reduced-motion: reduce)").matches;
   let shown = 0;
   let frame = null;
+  let ended = false; // the stream is over: done, abort or error
 
-  const paint = (upto, streaming) => {
+  // The caret marks "more is coming", which is true right up until the last
+  // character is on screen — not until `done`. Deriving it here rather than
+  // passing a flag is what stops the two from disagreeing.
+  const paint = (upto) => {
     if (!body) return;
     const pinned = isPinnedToBottom();
-    body.innerHTML = streaming
-      ? md(text.slice(0, upto)) + '<span class="caret"></span>'
-      : md(text.slice(0, upto));
+    const complete = ended && upto >= text.length;
+    body.innerHTML = complete
+      ? md(text)
+      : md(text.slice(0, upto)) + '<span class="caret"></span>';
     if (pinned) scrollToEnd();
   };
 
   const step = () => {
     frame = null;
     const remaining = text.length - shown;
-    if (remaining <= 0) return;
-
-    shown = Math.min(text.length, shown + Math.max(1, Math.ceil(remaining / 6)));
-    paint(shown, true);
-
+    if (remaining > 0) {
+      shown = Math.min(
+        text.length,
+        shown + Math.max(1, Math.ceil(remaining / REVEAL_SMOOTHNESS)),
+      );
+    }
+    paint(shown);
     if (shown < text.length) schedule();
   };
 
@@ -1130,13 +1157,18 @@ async function consume(res) {
     if (frame === null) frame = requestAnimationFrame(step);
   };
 
-  /** Stop pacing and jump to the full text — used on done, abort and error. */
+  /**
+   * End the reveal at once, showing everything received. For abort and errors
+   * only — `done` lets the backlog drain instead, so the reply doesn't snap.
+   */
   const settle = () => {
+    ended = true;
     if (frame !== null) {
       cancelAnimationFrame(frame);
       frame = null;
     }
     shown = text.length;
+    paint(shown);
   };
 
   try {
@@ -1149,7 +1181,7 @@ async function consume(res) {
         } else {
           // Reduced motion: no staged reveal, paint what has arrived.
           shown = text.length;
-          paint(shown, true);
+          paint(shown);
         }
       } else if (evt.type === "user") {
         // The id of the message just stored, so it can be edited without a
@@ -1170,8 +1202,16 @@ async function consume(res) {
         if (isPinnedToBottom()) scrollToEnd();
       } else if (evt.type === "done") {
         ensureBubble();
-        settle();
-        paint(text.length, false);
+        // Don't settle. The backlog keeps draining for a few hundred ms so the
+        // reply finishes rendering smoothly instead of snapping to full. One
+        // frame is scheduled unconditionally: if the reveal has already caught
+        // up there's nothing left to paint, but the caret still has to go.
+        ended = true;
+        if (paced) schedule();
+        else {
+          shown = text.length;
+          paint(shown);
+        }
         assistantEntry = { role: "assistant", content: text, artifacts };
         state.messages.push(assistantEntry);
         // The answer is complete; the stream stays open only for artifacts.
@@ -1190,6 +1230,7 @@ async function consume(res) {
       } else if (evt.type === "error") {
         stopThinking();
         bubble?.remove();
+        body = null; // the bubble is gone; the pending frame must not paint
         els.transcript.append(
           buildMessage({ role: "error", content: evt.error }),
         );
@@ -1197,18 +1238,23 @@ async function consume(res) {
     });
   } catch (err) {
     if (err.name === "AbortError") {
-      // Keep whatever streamed in before the user hit stop, in full.
+      // Stop means stop: settle immediately and keep whatever streamed in
+      // before the user hit it, in full. No trailing reveal here — the point
+      // of the button is that the motion ends when it's pressed.
       settle();
-      paint(text.length, false);
       if (text) state.messages.push({ role: "assistant", content: text, artifacts });
     } else {
       bubble?.remove();
+      body = null; // as above: nothing left to paint into
       els.transcript.append(
         buildMessage({ role: "error", content: err.message }),
       );
     }
   } finally {
-    settle(); // never leave a frame scheduled against a dead stream
+    // Only force-finish if the stream didn't end cleanly. After `done` a
+    // reveal is legitimately still running, and settling here would reinstate
+    // exactly the snap this change removes.
+    if (!ended) settle();
     stopThinking();
     releaseInput(); // no-op if `done` already released it
     if (isPinnedToBottom()) scrollToEnd();
@@ -1349,10 +1395,8 @@ els.action.addEventListener("click", () => {
 
 els.newChat.addEventListener("click", startNewChat);
 
-els.deleteBtn.addEventListener("click", () => {
-  const convo = state.conversations.find((c) => c.id === state.currentId);
-  if (convo) deleteConversation(convo);
-});
+// Deleting a conversation lives in the ⋯ menu on its sidebar row — the header
+// had a second, duplicate control for the same action.
 
 // --- row menu wiring --------------------------------------------------------
 
