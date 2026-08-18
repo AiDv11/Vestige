@@ -1,4 +1,39 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+
+/**
+ * Turn an SSE response body into a stream of parsed event objects.
+ *
+ * Kept outside the component because it has nothing to do with React — it is
+ * pure transport. Network chunks do not line up with SSE event boundaries, so
+ * anything after the last blank line is an incomplete event and goes back into
+ * the buffer to wait for the rest.
+ */
+async function* readEvents(response) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    // stream: true holds back multi-byte characters split across chunks.
+    buffer += decoder.decode(value, { stream: true });
+
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop();
+
+    for (const part of parts) {
+      const line = part.split("\n").find((l) => l.startsWith("data:"));
+      if (!line) continue;
+      try {
+        yield JSON.parse(line.slice(5).trim());
+      } catch {
+        // A malformed frame is not worth killing the stream over.
+      }
+    }
+  }
+}
 
 export default function App() {
   const [eras, setEras] = useState([]);
@@ -7,32 +42,157 @@ export default function App() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // The server owns conversation state; the client only needs the id.
+  const [conversationId, setConversationId] = useState(null);
+
+  const abortRef = useRef(null);
+  const bottomRef = useRef(null);
+
   useEffect(() => {
     fetch("/api/eras")
       .then((r) => r.json())
-      .then((data) => setEras(data))
+      .then(setEras)
       .catch(() => setEras([]));
   }, []);
 
-  function send() {
-    if (!input.trim()) return;
-    setMessages([...messages, { role: "user", content: input }]);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: "end" });
+  }, [messages]);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  // Always the updater form: `prev` is current, while a captured `messages`
+  // would be a stale snapshot from the render the stream started in.
+  function appendToLast(text) {
+    setMessages((prev) => {
+      const next = [...prev];
+      const last = next[next.length - 1];
+      next[next.length - 1] = { ...last, content: last.content + text };
+      return next;
+    });
+  }
+
+  function patchLast(fields) {
+    setMessages((prev) => {
+      const next = [...prev];
+      next[next.length - 1] = { ...next[next.length - 1], ...fields };
+      return next;
+    });
+  }
+
+  // Switching era starts a fresh conversation, because era is fixed at
+  // creation time on the server and cannot change for an existing one.
+  function chooseEra(id) {
+    if (id === era) return;
+    abortRef.current?.abort();
+    setEra(id);
+    setConversationId(null);
+    setMessages([]);
+  }
+
+  async function send() {
+    if (!input.trim() || busy) return;
+
+    const text = input.trim();
     setInput("");
+    setBusy(true);
+
+    // User turn plus the empty placeholder the deltas will fill, in one render.
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: text },
+      { role: "assistant", content: "" },
+    ]);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
+      // Create the conversation on first send rather than on page load, so an
+      // abandoned visit doesn't leave an empty row in the database.
+      let id = conversationId;
+      if (!id) {
+        const created = await fetch("/api/conversations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ era }),
+          signal: controller.signal,
+        });
+        if (!created.ok) throw new Error(await errorText(created));
+        id = (await created.json()).id;
+        setConversationId(id);
+      }
+
+      const res = await fetch(`/api/conversations/${id}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text }),
+        signal: controller.signal,
+      });
+
+      // Only pre-stream failures land here: 404, 400, or 429 from the rate
+      // limit. Once the stream is open the status is already 200, so failures
+      // after that arrive as an error event instead.
+      if (!res.ok) throw new Error(await errorText(res));
+
+      for await (const evt of readEvents(res)) {
+        switch (evt.type) {
+          case "user":
+            // The id of the stored user turn, needed later for Edit. It sits
+            // one before the assistant placeholder.
+            setMessages((prev) => {
+              const next = [...prev];
+              const i = next.length - 2;
+              if (i >= 0) next[i] = { ...next[i], id: evt.id };
+              return next;
+            });
+            break;
+
+          case "delta":
+            appendToLast(evt.text);
+            break;
+
+          case "done":
+            // Release the composer here, NOT in finally. The stream stays open
+            // past this point purely to deliver artifacts.
+            setBusy(false);
+            break;
+
+          case "artifacts":
+            patchLast({ artifacts: evt.artifacts });
+            break;
+
+          case "error":
+            appendToLast(`\n\n${evt.error}`);
+            setBusy(false);
+            break;
+        }
+      }
+    } catch (err) {
+      if (err.name !== "AbortError") {
+        appendToLast(`\n\n${err.message}`);
+      }
+    } finally {
+      // A safety net for paths that never reached `done` — an abort, or a
+      // failure before the stream opened.
+      setBusy(false);
+      abortRef.current = null;
+    }
   }
 
   return (
     <div>
       <h1>Vestige</h1>
 
-     {eras.map((e) => (
-      <button
-        key={e.id}
-        onClick={() => setEra(e.id)}
-        style={{ fontWeight: era === e.id ? "bold" : "normal" }}
-      >
-        {e.label}
-      </button>
-        ))}
+      {eras.map((e) => (
+        <button
+          key={e.id}
+          onClick={() => chooseEra(e.id)}
+          style={{ fontWeight: era === e.id ? "bold" : "normal" }}
+        >
+          {e.label}
+        </button>
+      ))}
 
       {messages.map((m, i) => (
         <p key={i}>
@@ -40,16 +200,30 @@ export default function App() {
         </p>
       ))}
 
+      <div ref={bottomRef} />
+
       <input
         value={input}
         onChange={(ev) => setInput(ev.target.value)}
-        onKeyDown={(ev) => ev.key === "Enter" && send()}
+        onKeyDown={(ev) => {
+          if (ev.key === "Enter" && !ev.nativeEvent.isComposing) send();
+        }}
         placeholder="Ask a history question..."
       />
 
-      <button onClick={busy ? () => setBusy(false) : send}>
+      <button onClick={busy ? () => abortRef.current?.abort() : send}>
         {busy ? "◼" : "→"}
       </button>
     </div>
   );
+}
+
+/** Your error routes all reply with { error }. Fall back to the status code. */
+async function errorText(res) {
+  try {
+    const body = await res.json();
+    return body.error ?? `Request failed (${res.status})`;
+  } catch {
+    return `Request failed (${res.status})`;
+  }
 }
