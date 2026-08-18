@@ -1,0 +1,1617 @@
+/* ===========================================================================
+   VESTIGE
+   The shell is a neutral instrument. The selected era supplies the colour,
+   the surface tint, and the display typeface. See PRODUCT.md.
+   =========================================================================== */
+
+   
+/* Registered so accent and tint genuinely interpolate between eras instead
+   of snapping. Unregistered custom properties can't be transitioned. */
+
+   #root { height: 100%; } 
+
+@property --accent {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.62 0.13 130);
+}
+@property --tint {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.09 0.004 130);
+}
+@property --tint-hi {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.13 0.006 130);
+}
+
+:root {
+  --accent: oklch(0.62 0.13 130);
+  --tint: oklch(0.09 0.004 130);
+  --tint-hi: oklch(0.13 0.006 130);
+
+  --bg: var(--tint);
+  --surface: var(--tint-hi);
+  /* Neutral defaults — safe everywhere. Tinted versions below, gated. */
+  --surface-hi: oklch(0.17 0 0);
+  --line: oklch(0.23 0 0);
+  --line-hi: oklch(0.32 0 0);
+
+  /* Ink — all ≥4.5:1 against --bg */
+  --ink: oklch(0.96 0 0);
+  --ink-mid: oklch(0.78 0 0);
+  --ink-low: oklch(0.64 0 0);
+
+  --danger: oklch(0.68 0.16 25);
+
+  /* Body is always the system stack. Only display changes per era, and it
+     loads on demand. */
+  --font-ui:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, monospace;
+  --font-display: var(--font-ui);
+  --display-weight: 600;
+  --display-tracking: -0.02em;
+
+  --step--1: 0.8125rem;
+  --step-0: 0.9375rem;
+  --step-1: 1.0625rem;
+  --step-2: 1.25rem;
+
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-scrim: 20;
+  --z-drawer: 30;
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur: 200ms;
+  --dur-era: 650ms;
+}
+
+/* Where relative colour syntax is supported, derive raised surfaces and
+   borders from the era tint so the whole shell shifts hue together.
+   Browsers without it keep the neutral defaults — the design still works. */
+@supports (color: oklch(from red l c h)) {
+  :root {
+    --surface-hi: oklch(from var(--tint-hi) calc(l + 0.04) c h);
+    --line: oklch(from var(--tint-hi) calc(l + 0.1) c h);
+    --line-hi: oklch(from var(--tint-hi) calc(l + 0.19) c h);
+  }
+}
+
+/* --- Era identities ------------------------------------------------------ */
+
+[data-era="all"] {
+  --accent: oklch(0.62 0.13 130);
+  --tint: oklch(0.09 0.004 130);
+  --tint-hi: oklch(0.13 0.006 130);
+  --font-display: var(--font-ui);
+  --display-weight: 600;
+  --display-tracking: -0.02em;
+}
+
+[data-era="rome"] {
+  --accent: oklch(0.64 0.17 32);
+  --tint: oklch(0.09 0.008 32);
+  --tint-hi: oklch(0.13 0.012 32);
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --display-weight: 700;
+  --display-tracking: -0.01em;
+}
+
+/* Slab serifs were literally called "Egyptians" in 19th-century foundries. */
+[data-era="egypt"] {
+  --accent: oklch(0.78 0.14 82);
+  --tint: oklch(0.09 0.008 82);
+  --tint-hi: oklch(0.13 0.012 82);
+  --font-display: "Zilla Slab", Rockwell, serif;
+  --display-weight: 600;
+  --display-tracking: -0.02em;
+}
+
+/* Cardo was designed for medieval and classical scholarship. */
+[data-era="medieval"] {
+  --accent: oklch(0.66 0.15 285);
+  --tint: oklch(0.09 0.008 285);
+  --tint-hi: oklch(0.13 0.012 285);
+  --font-display: "Cardo", "Times New Roman", serif;
+  --display-weight: 700;
+  --display-tracking: -0.015em;
+}
+
+/* Amiri is a naskh face revived from the types of the Bulaq Press, the first
+   printing house in the Arab world. */
+[data-era="islamic"] {
+  --accent: oklch(0.68 0.12 185);
+  --tint: oklch(0.09 0.007 185);
+  --tint-hi: oklch(0.13 0.011 185);
+  --font-display: "Amiri", Georgia, serif;
+  --display-weight: 700;
+  --display-tracking: -0.01em;
+}
+
+/* Source Serif's CJK sibling is Source Han Serif — a Songti, the typeface
+   class named after this dynasty. */
+[data-era="song"] {
+  --accent: oklch(0.66 0.16 340);
+  --tint: oklch(0.09 0.008 340);
+  --tint-hi: oklch(0.13 0.012 340);
+  --font-display: "Source Serif 4", Georgia, serif;
+  --display-weight: 600;
+  --display-tracking: -0.02em;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--step-0);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition:
+    --accent var(--dur-era) var(--ease),
+    --tint var(--dur-era) var(--ease),
+    --tint-hi var(--dur-era) var(--ease);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+button {
+  font: inherit;
+}
+
+/* ===========================================================================
+   SHELL
+   =========================================================================== */
+
+.app {
+  display: grid;
+  grid-template-columns: 276px 1fr;
+  height: 100dvh;
+}
+
+/* ===========================================================================
+   RAIL
+   =========================================================================== */
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding: var(--s-4);
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  min-height: 0;
+}
+
+.rail__head {
+  padding: var(--s-2) var(--s-2) 0;
+}
+
+/* Holds the <symbol> definition only — never rendered itself. Kept out of
+   flow rather than display:none, which some engines treat as a reason not to
+   resolve <use> references. */
+.sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  margin: 0;
+  font-size: var(--step-1);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+/* The wordmark deliberately does NOT use --font-display. The era supplies the
+   colour that moves; the product's own name is chrome and stays put. A name
+   that reshaped itself into a slab serif on hovering Egypt would read as a
+   bug, not as a theme. */
+.brand__name {
+  color: var(--ink);
+}
+
+.brand__tag {
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--ink-low);
+}
+
+/* The mark is the one part of the lockup that follows the era, exactly like
+   the conversation dots. */
+.brand__mark {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  fill: var(--accent);
+  align-self: center;
+}
+
+.new-chat {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  padding: var(--s-3);
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--ink);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.new-chat svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.new-chat:hover {
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+  border-color: color-mix(in oklch, var(--accent) 50%, transparent);
+}
+
+/* --- Conversation list ---------------------------------------------------- */
+
+.convos {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0 calc(var(--s-2) * -1);
+  padding: 0 var(--s-2);
+  scrollbar-width: thin;
+}
+
+.convo-group {
+  margin-bottom: var(--s-4);
+}
+
+.convo-group__label {
+  margin: 0 var(--s-2) var(--s-2);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-low);
+}
+
+/* A row, not a button — it contains its own ⋯ button, and nesting buttons is
+   invalid HTML. */
+.convo {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-md);
+  color: var(--ink-mid);
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.convo:hover,
+.convo:focus-within {
+  background: var(--surface-hi);
+  color: var(--ink);
+}
+
+.convo[aria-current="true"] {
+  background: color-mix(in oklch, var(--accent) 15%, transparent);
+  color: var(--ink);
+}
+
+.convo__open {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Era is signalled by a dot AND the title's tooltip — never colour alone. */
+.convo__dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--era-dot, var(--ink-low));
+}
+
+/* Fixed per era — these don't follow the active theme, so a glance down the
+   list tells you which era each conversation belongs to. */
+.convo[data-era="all"] {
+  --era-dot: oklch(0.62 0.13 130);
+}
+.convo[data-era="rome"] {
+  --era-dot: oklch(0.64 0.17 32);
+}
+.convo[data-era="egypt"] {
+  --era-dot: oklch(0.78 0.14 82);
+}
+.convo[data-era="medieval"] {
+  --era-dot: oklch(0.66 0.15 285);
+}
+.convo[data-era="islamic"] {
+  --era-dot: oklch(0.68 0.12 185);
+}
+.convo[data-era="song"] {
+  --era-dot: oklch(0.66 0.16 340);
+}
+
+.convo__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--step--1);
+}
+
+/* The ⋯ button. Hidden until the row is hovered or focused, so the list
+   stays quiet — but always visible on touch, where there is no hover. */
+.convo__more {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  margin-right: -4px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink-low);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.convo__more svg {
+  width: 16px;
+  height: 16px;
+}
+
+.convo:hover .convo__more,
+.convo__more:focus-visible,
+.convo[data-menu-open="true"] .convo__more {
+  opacity: 1;
+}
+
+.convo__more:hover,
+.convo[data-menu-open="true"] .convo__more {
+  background: var(--line-hi);
+  color: var(--ink);
+}
+
+@media (hover: none) {
+  .convo__more {
+    opacity: 1;
+  }
+}
+
+/* Inline rename field — replaces the title in place. */
+.convo__rename {
+  flex: 1;
+  min-width: 0;
+  padding: 2px var(--s-2);
+  border: 1px solid color-mix(in oklch, var(--accent) 60%, transparent);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--step--1);
+  outline: none;
+}
+
+.convos__empty {
+  padding: var(--s-3);
+  margin: 0;
+  font-size: var(--step--1);
+  color: var(--ink-low);
+}
+
+.rail__foot {
+  border-top: 1px solid var(--line);
+  padding-top: var(--s-4);
+}
+
+.caveat {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--ink-low);
+}
+
+/* ===========================================================================
+   CHAT
+   =========================================================================== */
+
+.chat {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-width: 0;
+  min-height: 0;
+  position: relative; /* anchors the scroll-to-latest button */
+
+  /* On a wide monitor, left-aligned replies and right-aligned questions end
+     up separated by a gulf of empty space. This keeps the conversation as a
+     centred column while the scrollbar stays at the real edge. */
+  --gutter: max(var(--s-6), calc((100% - 58rem) / 2));
+}
+
+.chat__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding-block: var(--s-3);
+  padding-inline: var(--gutter);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: var(--bg);
+}
+
+/* The drawer toggle exists only below the breakpoint, where the sidebar is a
+   drawer and this is the sole way in. Above it the sidebar is always on
+   screen, so the toggle would do nothing.
+   Scoped to .chat__head deliberately: a bare `.chat__menu` ties with
+   `.icon-btn` on specificity and loses on source order, which is exactly how
+   it ended up visible on wide screens. `display: none` also keeps it out of
+   the tab order, and removes it from the header's flex layout so no gap
+   remains. */
+.chat__head .chat__menu {
+  display: none;
+}
+
+.now {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  min-width: 0;
+  flex: 1;
+}
+
+.now__era {
+  font-family: var(--font-display);
+  font-size: var(--step-2);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.now__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--step--1);
+  color: var(--ink-low);
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border: 0;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--ink-low);
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.icon-btn:hover {
+  background: var(--surface-hi);
+  color: var(--ink);
+}
+
+.transcript {
+  overflow-y: auto;
+  padding-block: var(--s-6);
+  padding-inline: var(--gutter);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  scrollbar-gutter: stable;
+}
+
+/* --- Scroll to latest ----------------------------------------------------- */
+
+/* The dock owns the composer's outer spacing, so the jump button can anchor to
+   the composer's real top edge — the composer grows with its textarea, so a
+   fixed offset from the bottom of the screen would drift over the transcript. */
+.composer-dock {
+  position: relative;
+  margin-inline: var(--gutter);
+  margin-bottom: var(--s-5);
+}
+
+.to-bottom {
+  position: absolute;
+  bottom: calc(100% + var(--s-2));
+  left: 50%;
+  translate: -50% 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-4);
+  border: 1px solid var(--line-hi);
+  border-radius: 999px;
+  background: var(--surface-hi);
+  color: var(--ink);
+  font-size: var(--step--1);
+  cursor: pointer;
+  box-shadow: 0 6px 20px oklch(0 0 0 / 0.4);
+  animation: rise 200ms var(--ease);
+  transition: background var(--dur) var(--ease);
+}
+
+.to-bottom[hidden] {
+  display: none;
+}
+
+.to-bottom svg {
+  width: 15px;
+  height: 15px;
+}
+
+.to-bottom:hover {
+  background: var(--line-hi);
+}
+
+/* --- Messages ------------------------------------------------------------ */
+
+.msg {
+  max-width: 68ch;
+  animation: rise 320ms var(--ease) both;
+}
+
+/* A column, not the bubble itself — the bubble is now a child so the Edit
+   action can sit outside it, the way Copy/Regenerate sit under a reply. */
+.msg--user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  align-self: flex-end;
+  max-width: 46ch;
+  width: 100%;
+}
+
+.msg__bubble {
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-lg);
+  background: var(--surface-hi);
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+.msg__bubble[hidden] {
+  display: none;
+}
+
+.msg--user .msg__actions {
+  justify-content: flex-end;
+}
+
+.msg--user .msg__actions[hidden] {
+  display: none;
+}
+
+/* --- Inline message editing ----------------------------------------------- */
+
+.msg__edit {
+  width: 100%;
+  min-width: min(46ch, 60vw);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid color-mix(in oklch, var(--accent) 60%, transparent);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  field-sizing: content;
+}
+
+.msg__edit-actions {
+  display: flex;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+}
+
+.act--primary {
+  background: color-mix(in oklch, var(--accent) 18%, transparent);
+  color: var(--ink);
+}
+
+.act--primary:hover {
+  background: color-mix(in oklch, var(--accent) 28%, transparent);
+}
+
+.msg--bot {
+  align-self: flex-start;
+  width: 100%;
+}
+
+.msg__who {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-2);
+  font-family: var(--font-display);
+  font-size: var(--step-0);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  color: var(--accent);
+}
+
+.msg__who::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+
+.msg__body > :first-child {
+  margin-top: 0;
+}
+.msg__body > :last-child {
+  margin-bottom: 0;
+}
+
+.msg__body p {
+  margin: 0 0 var(--s-3);
+  text-wrap: pretty;
+}
+
+.msg__body h2,
+.msg__body h3 {
+  margin: var(--s-4) 0 var(--s-2);
+  font-size: var(--step-1);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.msg__body strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.msg__body em {
+  color: var(--ink-mid);
+}
+
+.msg__body ul,
+.msg__body ol {
+  margin: 0 0 var(--s-3);
+  padding-left: 1.25em;
+}
+
+.msg__body li {
+  margin-bottom: var(--s-1);
+}
+
+.msg__body li::marker {
+  color: var(--accent);
+}
+
+.msg__body code {
+  padding: 0.1em 0.35em;
+  border-radius: var(--r-sm);
+  background: var(--surface-hi);
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+
+/* The block that grows while tokens stream in. */
+.msg__body .caret {
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: blink 1s steps(2, start) infinite;
+}
+
+/* --- Artifacts -----------------------------------------------------------
+   Real objects from the Met's collection, shown as evidence beside an answer.
+   The photograph leads; the chrome stays out of its way. */
+
+.relics {
+  margin-top: var(--s-4);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+  animation: rise 320ms var(--ease) both;
+}
+
+.relics__label {
+  margin: 0 0 var(--s-3);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-low);
+}
+
+.relics__row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(128px, 1fr);
+  gap: var(--s-3);
+  overflow-x: auto;
+  padding-bottom: var(--s-2);
+  scrollbar-width: thin;
+}
+
+.relic {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.relic__frame {
+  position: relative;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--surface-hi);
+}
+
+.relic__frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition:
+    transform 400ms var(--ease),
+    opacity var(--dur) var(--ease);
+}
+
+.relic:hover .relic__frame img {
+  transform: scale(1.04);
+}
+
+/* Broken image URLs happen in any large collection — fade the frame rather
+   than showing a torn-image icon. */
+.relic__frame img[data-broken="true"] {
+  opacity: 0;
+}
+
+.relic__title {
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--ink-mid);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.relic:hover .relic__title {
+  color: var(--ink);
+}
+
+.relic__date {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--accent);
+}
+
+.msg__actions {
+  display: flex;
+  gap: var(--s-1);
+  margin-top: var(--s-2);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.msg:hover .msg__actions,
+.msg__actions:focus-within {
+  opacity: 1;
+}
+
+.act {
+  padding: var(--s-1) var(--s-2);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink-low);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.act:hover {
+  background: var(--surface-hi);
+  color: var(--ink);
+}
+
+.msg--error {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  align-self: flex-start;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid oklch(0.5 0.14 25);
+  border-radius: var(--r-md);
+  background: oklch(0.2 0.05 25);
+  color: oklch(0.9 0.05 25);
+  font-size: var(--step--1);
+}
+
+.msg--error .act {
+  flex: none;
+  padding: var(--s-1) var(--s-3);
+  border: 1px solid oklch(0.5 0.12 25);
+  border-radius: var(--r-sm);
+  color: oklch(0.92 0.05 25);
+}
+
+.msg--error .act:hover {
+  background: oklch(0.32 0.08 25);
+  color: oklch(0.98 0.02 25);
+}
+
+/* --- Thinking ------------------------------------------------------------- */
+
+.thinking {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  align-self: flex-start;
+  padding: var(--s-2) 0;
+  color: var(--ink-low);
+  font-size: var(--step--1);
+}
+
+.thinking__dots {
+  display: flex;
+  gap: 5px;
+  flex: none;
+}
+
+.thinking__dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.2s var(--ease) infinite;
+}
+
+.thinking__dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.thinking__dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.thinking__text {
+  animation: fadeIn 400ms var(--ease);
+}
+
+/* --- Empty state: the era chooser is the hero ----------------------------- */
+
+.empty {
+  margin: auto 0;
+  width: 100%;
+  max-width: 62ch;
+  animation: rise 420ms var(--ease) both;
+}
+
+/* The brand lockup, stacked and centred. Same reasoning as the sidebar: the
+   mark carries the era colour, the wordmark stays neutral. */
+.empty__brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-5);
+  text-align: center;
+}
+
+.empty__mark {
+  width: 52px;
+  height: 52px;
+  fill: var(--accent);
+}
+
+.empty__name {
+  margin: 0;
+  font-size: clamp(2.25rem, 5vw, 3.25rem);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.empty__tag {
+  font-size: var(--step-0);
+  color: var(--ink-low);
+}
+
+.empty__sub {
+  margin: 0 0 var(--s-6);
+  max-width: 48ch;
+  color: var(--ink-mid);
+  text-wrap: pretty;
+}
+
+.empty__label {
+  margin: 0 0 var(--s-3);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-low);
+}
+
+.era-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--s-2);
+  margin-bottom: var(--s-6);
+}
+
+/* A wrapper, not a button: custom eras carry their own delete button, and
+   nesting buttons is invalid HTML. */
+.era-opt {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-md);
+  color: var(--ink-mid);
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.era-opt:hover,
+.era-opt:focus-within {
+  color: var(--ink);
+  border-color: color-mix(in oklch, var(--accent) 55%, transparent);
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+}
+
+.era-opt[data-selected="true"] {
+  color: var(--ink);
+  border-color: color-mix(in oklch, var(--accent) 70%, transparent);
+  background: color-mix(in oklch, var(--accent) 16%, transparent);
+}
+
+.era-opt__choose {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  padding: var(--s-3);
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.era-opt__name {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-weight: 500;
+}
+
+/* Custom eras carry a dot in their own generated hue — the same signal the
+   conversation list uses, so they read as "yours" without a second colour
+   system. Set inline from the validated integer hue. */
+.era-opt__dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--era-dot, var(--ink-low));
+}
+
+.era-opt__years {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--ink-low);
+}
+
+.era-opt[data-selected="true"] .era-opt__years {
+  color: color-mix(in oklch, var(--accent) 75%, var(--ink));
+}
+
+/* Shown when the era matched no Met department, so it ships with artifacts off. */
+.era-opt__noart {
+  font-family: var(--font-ui);
+  font-size: 0.6875rem;
+  color: var(--ink-low);
+}
+
+.era-opt__remove {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  flex: none;
+  border: 0;
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  background: none;
+  color: var(--ink-low);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.era-opt__remove svg {
+  width: 14px;
+  height: 14px;
+}
+
+.era-opt:hover .era-opt__remove,
+.era-opt__remove:focus-visible {
+  opacity: 1;
+}
+
+.era-opt__remove:hover {
+  color: var(--danger);
+}
+
+@media (hover: none) {
+  .era-opt__remove {
+    opacity: 1;
+  }
+}
+
+/* --- Add an era ----------------------------------------------------------- */
+
+.era-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border: 1px dashed var(--line-hi);
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--ink-low);
+  font-size: var(--step--1);
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.era-add:hover {
+  border-color: color-mix(in oklch, var(--accent) 55%, transparent);
+  color: var(--ink);
+}
+
+.era-add svg {
+  width: 14px;
+  height: 14px;
+}
+
+.era-new {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: var(--s-2);
+  align-items: center;
+}
+
+.era-new__input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--s-3);
+  border: 1px solid color-mix(in oklch, var(--accent) 60%, transparent);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--step--1);
+  outline: none;
+}
+
+.era-new__input::placeholder {
+  color: var(--ink-low);
+}
+
+.era-new__note {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--ink-low);
+}
+
+.era-new__note--error {
+  color: oklch(0.78 0.13 25);
+}
+
+.starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.starter {
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line-hi);
+  border-radius: 999px;
+  background: none;
+  color: var(--ink-mid);
+  font-size: var(--step--1);
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+
+.starter:hover {
+  border-color: color-mix(in oklch, var(--accent) 55%, transparent);
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+  color: var(--ink);
+}
+
+/* --- Composer ------------------------------------------------------------- */
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-2);
+  margin: 0; /* the dock positions it */
+  padding: var(--s-3);
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  transition: border-color var(--dur) var(--ease);
+}
+
+.composer:focus-within {
+  border-color: color-mix(in oklch, var(--accent) 60%, transparent);
+}
+
+.composer__input {
+  flex: 1;
+  max-height: 40vh;
+  padding: var(--s-2);
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  field-sizing: content;
+}
+
+.composer__input::placeholder {
+  color: var(--ink-low);
+}
+
+/* Send while idle, abort while streaming — one button, never both. The two
+   icons share a single grid cell and exactly one is displayed, so the state
+   attribute alone decides what you see. */
+.composer__action {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border: 0;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+
+.composer__icon {
+  grid-area: 1 / 1;
+  width: 18px;
+  height: 18px;
+}
+
+.composer__action[data-state="send"] {
+  background: var(--accent);
+  color: oklch(0.14 0 0);
+}
+
+.composer__action[data-state="send"]:hover {
+  transform: translateX(1px);
+}
+
+.composer__action[data-state="send"] .composer__icon--abort {
+  display: none;
+}
+
+.composer__action[data-state="abort"] {
+  background: var(--surface-hi);
+  color: var(--ink);
+}
+
+.composer__action[data-state="abort"]:hover {
+  background: var(--line-hi);
+}
+
+.composer__action[data-state="abort"] .composer__icon--send {
+  display: none;
+}
+
+/* --- Row menu ------------------------------------------------------------- */
+
+.menu {
+  position: fixed;
+  z-index: var(--z-drawer);
+  min-width: 160px;
+  padding: var(--s-1);
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-md);
+  background: var(--surface-hi);
+  box-shadow: 0 8px 24px oklch(0 0 0 / 0.45);
+  animation: rise 140ms var(--ease);
+}
+
+.menu[hidden] {
+  display: none;
+}
+
+.menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  width: 100%;
+  padding: var(--s-2) var(--s-3);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink-mid);
+  font-size: var(--step--1);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.menu__item svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.menu__item:hover,
+.menu__item:focus-visible {
+  background: var(--line-hi);
+  color: var(--ink);
+}
+
+.menu__item--danger:hover,
+.menu__item--danger:focus-visible {
+  color: var(--danger);
+}
+
+/* --- Confirm dialog ------------------------------------------------------- */
+
+.confirm {
+  width: min(92vw, 400px);
+  padding: var(--s-5);
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.confirm::backdrop {
+  background: oklch(0 0 0 / 0.6);
+}
+
+.confirm[open] {
+  animation: rise 200ms var(--ease);
+}
+
+.confirm__title {
+  margin: 0 0 var(--s-2);
+  font-size: var(--step-1);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.confirm__body {
+  margin: 0 0 var(--s-5);
+  color: var(--ink-mid);
+  font-size: var(--step--1);
+  text-wrap: pretty;
+}
+
+.confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s-2);
+}
+
+.btn {
+  padding: var(--s-2) var(--s-4);
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--ink);
+  font-size: var(--step--1);
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.btn:hover {
+  background: var(--surface-hi);
+}
+
+.btn--danger {
+  border-color: transparent;
+  background: var(--danger);
+  color: oklch(0.14 0 0);
+  font-weight: 500;
+}
+
+.btn--danger:hover {
+  background: oklch(from var(--danger) calc(l + 0.06) c h);
+}
+
+/* --- Toast ---------------------------------------------------------------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: var(--s-6);
+  translate: -50% 0;
+  z-index: var(--z-drawer);
+  padding: var(--s-2) var(--s-4);
+  border-radius: 999px;
+  background: var(--surface-hi);
+  border: 1px solid var(--line-hi);
+  color: var(--ink);
+  font-size: var(--step--1);
+  animation: rise 240ms var(--ease);
+}
+
+/* ===========================================================================
+   MOTION
+   =========================================================================== */
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.85);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .thinking__dots i {
+    animation: none !important;
+    opacity: 0.7;
+  }
+
+  .msg__body .caret {
+    animation: none !important;
+  }
+}
+
+/* ===========================================================================
+   RESPONSIVE — structural
+   =========================================================================== */
+
+@media (max-width: 1080px) {
+  .app {
+    grid-template-columns: 240px 1fr;
+  }
+
+  .chat {
+    --gutter: var(--s-5);
+  }
+}
+
+/* Phone / small tablet: the rail becomes a drawer. */
+@media (max-width: 860px) {
+  .app {
+    grid-template-columns: 1fr;
+  }
+
+  .rail {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(84vw, 300px);
+    z-index: var(--z-drawer);
+    transform: translateX(-100%);
+    transition: transform 260ms var(--ease);
+  }
+
+  .app[data-open="true"] .rail {
+    transform: none;
+  }
+
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-scrim);
+    background: oklch(0 0 0 / 0.5);
+    border: 0;
+    animation: fadeIn 200ms var(--ease);
+  }
+
+  .chat__head .chat__menu {
+    display: grid;
+  }
+
+  .chat {
+    --gutter: var(--s-4);
+  }
+
+  .chat__head {
+    padding-block: var(--s-3);
+  }
+
+  .now {
+    flex-direction: column;
+    gap: 0;
+    align-items: flex-start;
+  }
+
+  .now__era {
+    font-size: var(--step-1);
+  }
+
+  .transcript {
+    padding-block: var(--s-4);
+    gap: var(--s-4);
+  }
+
+  .msg--user {
+    max-width: 88%;
+  }
+
+  .msg__actions {
+    opacity: 1;
+  }
+
+  .composer-dock {
+    margin-bottom: var(--s-4);
+  }
+
+  .empty__name {
+    font-size: clamp(1.875rem, 9vw, 2.5rem);
+  }
+
+  .empty__mark {
+    width: 44px;
+    height: 44px;
+  }
+
+  .brand__tag {
+    display: none; /* the drawer header is tight; the mark carries it */
+  }
+
+  .era-picker {
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  }
+}
