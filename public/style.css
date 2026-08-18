@@ -1611,3 +1611,27 @@ button {
     grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   }
 }
+
+/* Each card carries its own colour, so hover-previewing one era doesn't
+   recolour the card that's actually selected. */
+.era-opt[data-era="all"]      { --era-accent: oklch(0.62 0.13 130); }
+.era-opt[data-era="rome"]     { --era-accent: oklch(0.64 0.17 32); }
+.era-opt[data-era="egypt"]    { --era-accent: oklch(0.78 0.14 82); }
+.era-opt[data-era="medieval"] { --era-accent: oklch(0.66 0.15 285); }
+.era-opt[data-era="islamic"]  { --era-accent: oklch(0.68 0.12 185); }
+.era-opt[data-era="song"]     { --era-accent: oklch(0.66 0.16 340); }
+
+.era-opt:hover,
+.era-opt:focus-within {
+  border-color: color-mix(in oklch, var(--era-accent, var(--accent)) 55%, transparent);
+  background: color-mix(in oklch, var(--era-accent, var(--accent)) 10%, transparent);
+}
+
+.era-opt[data-selected="true"] {
+  border-color: color-mix(in oklch, var(--era-accent, var(--accent)) 70%, transparent);
+  background: color-mix(in oklch, var(--era-accent, var(--accent)) 16%, transparent);
+}
+
+.era-opt[data-selected="true"] .era-opt__years {
+  color: color-mix(in oklch, var(--era-accent, var(--accent)) 75%, var(--ink));
+}

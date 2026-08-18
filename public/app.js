@@ -679,6 +679,7 @@ function buildEraOption(era) {
   const wrap = document.createElement("div");
   wrap.className = era.custom ? "era-opt era-opt--custom" : "era-opt";
   wrap.dataset.selected = String(era.id === state.draftEra);
+    wrap.dataset.era = era.id;
 
   const choose = document.createElement("button");
   choose.type = "button";
@@ -688,11 +689,12 @@ function buildEraOption(era) {
   const name = document.createElement("span");
   name.className = "era-opt__name";
 
-  if (era.custom) {
+   if (era.custom) {
     const dot = document.createElement("span");
     dot.className = "era-opt__dot";
     const hue = ((Number(era.hue) % 360) + 360) % 360 || 0;
     dot.style.setProperty("--era-dot", `oklch(0.66 0.15 ${hue})`);
+    wrap.style.setProperty("--era-accent", `oklch(0.66 0.15 ${hue})`);
     name.append(dot);
   }
 
