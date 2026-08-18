@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import Markdown from "./Markdown";
+import Markdown from "./Markdown.jsx";
+import { useEra } from "./uesEra.js";
 
 /**
  * Turn an SSE response body into a stream of parsed event objects.
@@ -48,6 +49,9 @@ export default function App() {
 
   const abortRef = useRef(null);
   const bottomRef = useRef(null);
+
+   useEra(eras, era);
+
 
   useEffect(() => {
     fetch("/api/eras")
