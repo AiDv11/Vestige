@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import Markdown from "./Markdown";
 
 /**
  * Turn an SSE response body into a stream of parsed event objects.
@@ -180,41 +181,98 @@ export default function App() {
     }
   }
 
-  return (
-    <div>
-      <h1>Vestige</h1>
+ return (
+  <div className="app">
+    <aside className="rail">
+      <div className="rail__head">
+        <h1 className="brand">
+          <span className="brand__name">Vestige</span>
+          <span className="brand__tag">ask the past</span>
+        </h1>
+      </div>
+    </aside>
 
-      {eras.map((e) => (
-        <button
-          key={e.id}
-          onClick={() => chooseEra(e.id)}
-          style={{ fontWeight: era === e.id ? "bold" : "normal" }}
-        >
-          {e.label}
-        </button>
-      ))}
+    <main className="chat">
+      <header className="chat__head">
+        <div className="now">
+          <span className="now__era">
+            {eras.find((e) => e.id === era)?.label ?? "All History"}
+          </span>
+          <span className="now__title">New conversation</span>
+        </div>
+      </header>
 
-      {messages.map((m, i) => (
-        <p key={i}>
-          <strong>{m.role}:</strong> {m.content}
-        </p>
-      ))}
+      <div className="transcript">
+        {messages.length === 0 ? (
+          <div className="empty">
+            <p className="empty__label">Era</p>
+            <div className="era-picker">
+              {eras.map((e) => (
+                <div
+                  key={e.id}
+                  className="era-opt"
+                  data-selected={String(e.id === era)}
+                >
+                  <button
+                    type="button"
+                    className="era-opt__choose"
+                    onClick={() => chooseEra(e.id)}
+                  >
+                    <span className="era-opt__name">{e.label}</span>
+                    <span className="era-opt__years">{e.blurb}</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          messages.map((m, i) =>
+            m.role === "user" ? (
+              <div key={i} className="msg msg--user">
+                <div className="msg__bubble">{m.content}</div>
+              </div>
+            ) : (
+              <div key={i} className="msg msg--bot">
+                <p className="msg__who">History</p>
+                <div className="msg__body">
+                  <Markdown text={m.content} />
+                </div>
+              </div>
+            )
+          )
+        )}
+        <div ref={bottomRef} />
+      </div>
 
-      <div ref={bottomRef} />
-
-      <input
-        value={input}
-        onChange={(ev) => setInput(ev.target.value)}
-        onKeyDown={(ev) => {
-          if (ev.key === "Enter" && !ev.nativeEvent.isComposing) send();
-        }}
-        placeholder="Ask a history question..."
-      />
-
-      <button onClick={busy ? () => abortRef.current?.abort() : send}>
-        {busy ? "◼" : "→"}
-      </button>
-    </div>
+      <div className="composer-dock">
+        <div className="composer">
+          <input
+            className="composer__input"
+            value={input}
+            onChange={(ev) => setInput(ev.target.value)}
+            onKeyDown={(ev) => {
+              if (ev.key === "Enter" && !ev.nativeEvent.isComposing) send();
+            }}
+            placeholder="Ask a history question..."
+          />
+          <button
+            type="button"
+            className="composer__action"
+            data-state={busy ? "abort" : "send"}
+            aria-label={busy ? "Stop generating" : "Send"}
+            onClick={busy ? () => abortRef.current?.abort() : send}
+          >
+            <svg className="composer__icon composer__icon--send" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <svg className="composer__icon composer__icon--abort" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </main>
+  </div>
   );
 }
 
