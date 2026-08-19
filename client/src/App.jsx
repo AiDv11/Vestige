@@ -638,8 +638,13 @@ export default function App() {
           {messages.length === 0 ? (
             <div className="empty">
               <div className="empty__brand">
-                <h2 className="empty__name">Vestige</h2>
-                <span className="empty__tag">ask the past</span>
+               <div className="empty__brand">
+                    <svg className="empty__mark" aria-hidden="true" focusable="false">
+                      <use href="#vestige-mark" />
+                    </svg>
+                    <h2 className="empty__name">Vestige</h2>
+                    <span className="empty__tag">ask the past</span>
+                  </div>
               </div>
 
               <p className="empty__sub">

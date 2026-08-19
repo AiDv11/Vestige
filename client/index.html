@@ -1,12 +1,69 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-era="all">
   <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>client</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vestige — ask the past</title>
+    <meta
+      name="description"
+      content="Vestige — ask the past. A chat interface for history questions: pick an era and the assistant adopts that period's expertise."
+    />
+    <meta name="color-scheme" content="dark" />
+
+    <!-- Social preview. Absolute URLs are required — crawlers do not resolve
+         relative paths against the page they found the tag on. -->
+    <meta property="og:title" content="Vestige — ask the past" />
+    <meta
+      property="og:description"
+      content="Pick an era and the assistant takes on that period's expertise, with real objects from the Met Museum alongside each answer."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://vestige-ilw5.onrender.com" />
+    <meta
+      property="og:image"
+      content="https://vestige-ilw5.onrender.com/og.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Vestige — ask the past" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Vestige — ask the past" />
+    <meta
+      name="twitter:description"
+      content="Pick an era and the assistant takes on that period's expertise, with real objects from the Met Museum alongside each answer."
+    />
+    <meta
+      name="twitter:image"
+      content="https://vestige-ilw5.onrender.com/og.png"
+    />
+
+    <!-- Era display faces are fetched on demand by useEra.js, never on load.
+         Preconnecting means the handshake is already done when they are. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
+    <!-- No stylesheet link: main.jsx imports style.css, so Vite bundles it and
+         hashes the filename for cache-busting. -->
   </head>
   <body>
+    <!-- The mark, defined once. The sidebar and the empty state reference it
+         with <use>, so the path data lives in exactly one place. No fill is
+         set here — it's inherited from whatever uses it, which is how the
+         in-page copies follow --accent. -->
+    <svg class="sprite" aria-hidden="true" focusable="false">
+      <symbol id="vestige-mark" viewBox="0 0 32 32">
+        <ellipse cx="8.6" cy="7.2" rx="2.6" ry="3" />
+        <ellipse cx="13.3" cy="5" rx="1.95" ry="2.35" />
+        <ellipse cx="17.4" cy="4.6" rx="1.85" ry="2.25" />
+        <ellipse cx="21.2" cy="5.4" rx="1.7" ry="2.05" />
+        <ellipse cx="24.4" cy="7.2" rx="1.5" ry="1.8" />
+        <ellipse cx="16.4" cy="14.8" rx="8.4" ry="5.5" />
+        <ellipse cx="17" cy="26" rx="5.6" ry="4.6" />
+      </symbol>
+    </svg>
+
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

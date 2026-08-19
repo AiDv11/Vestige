@@ -7,8 +7,8 @@ services:
     name: vestige
     runtime: node
     plan: free
-    buildCommand: npm install
-    startCommand: npm start
+    buildCommand: npm install && npm run build
+    startCommand: npm run server
     healthCheckPath: /healthz
     envVars:
       - key: GROQ_API_KEY

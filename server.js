@@ -361,7 +361,7 @@ app.post("/api/conversations/:id/regenerate", askLimit, async (req, res) => {
 
 // ---------------------------------------------------------------------------
 
-app.use(express.static("public"));
+app.use(express.static("client/dist"));
 
 /**
  * Count registered routes. Printing this at startup makes a stale process
