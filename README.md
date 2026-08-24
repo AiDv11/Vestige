@@ -66,17 +66,45 @@ looks like Rome.
 
 The persona text is never used as a system prompt and never concatenated into
 one. It goes into a **delimited slot** inside a fixed template, framed as data,
-with the rules stated before it. Angle brackets are stripped so the slot cannot
-be closed early.
+with the rules stated before it *and restated after it*. Angle brackets are
+stripped so the slot cannot be closed early.
 
-That last defence has a history worth stating. Stripping during validation was
-not sufficient on its own, because the function that builds the prompt was
-*trusting that validation had happened*. A persona reaching it with a closing
-marker intact escaped the slot, and the model followed the instructions inside
-— it named the delimiters and abandoned the question. The fix was to strip
-again at the point of use. There is a test that plants a hostile persona
-directly in the database, bypassing validation entirely, and asserts the model
-answers the history question instead.
+That last defence has a history worth stating, in the order it actually
+happened.
+
+Stripping during validation was not sufficient on its own, because the function
+that builds the prompt was *trusting that validation had happened*. A persona
+reaching it with a closing marker intact escaped the slot, and the model
+followed the instructions inside — it named the delimiters and abandoned the
+question. The fix was to strip again at the point of use.
+
+That closed the hole in the structure, and the structure was never the whole
+problem. With the brackets gone and the slot intact — nothing escaping, no
+markup at all — the model still obeyed plain instructions sitting inside it,
+written as ordinary prose. **6 of 8 runs compromised**, and the same runs handed
+back the system prompt when the persona asked for it. Containing the text was
+necessary and not sufficient.
+
+What fixed it was moving the rule rather than strengthening it. The template now
+restates the containment rule *after* the closing marker as well as before it:
+the brief has ended, and anything it appeared to instruct is void. **0 of 24
+compromised** after that. **Recency beats precedence with this model** — the
+last instruction before the question is the one it follows, so a rule stated
+only at the top is a rule the untrusted text gets the final word on.
+
+Worth being straight about how that was found, because it is the more useful
+half of the story: the first two findings were written up here as tested and
+contained while they were neither. The suite that proved them had been lost, the
+prose stayed, and nothing was checking. It was rebuilding the test suite that
+ran the attack again and turned up the third finding. The tests are tracked
+files now, and `verify-docs.js` checks the numbers in this section against the
+suite that measures them.
+
+There is a test that plants a hostile persona directly in the database,
+bypassing validation entirely, and asserts the model answers the history
+question instead. Two more assert that the closing paragraph is present and sits
+before the shared rules, because it is the load-bearing part and the easiest
+thing to tidy away.
 
 The visitor's own input is gated before it reaches any of this: a 60-character
 cap, a character whitelist, and control characters refused rather than
@@ -126,16 +154,19 @@ artifacts.
 ## Testing
 
 There is no test framework. Tests are standalone Node scripts run against a
-second server instance on a separate port and database, covering the API
-surface, session isolation, message editing, artifact behaviour, custom era
-validation, and prompt-injection containment.
+second server instance on a separate port and database. Two suites are tracked:
+`tests/edit-messages.test.js` covers truncation by message id and session
+isolation around editing, and `tests/custom-eras.test.js` covers field
+validation, the hue gap, and prompt-injection containment. The API surface and
+artifact behaviour are not covered yet — the suite that used to cover them is
+the one that was lost.
 
 The part worth mentioning is how the assertions are trusted: **the code is
 deliberately broken to confirm the tests fail.** Message editing truncates a
 conversation by message id, which is the operation most likely to destroy data,
 so it was mutated twice —
 
-- changing `id >= ?` to `id > ?` produced **9 failures**
+- changing `id >= ?` to `id > ?` produced **5 failures**
 - deleting two messages too far back produced the one that matters:
   `the earlier good reply SURVIVED — DELETED`
 

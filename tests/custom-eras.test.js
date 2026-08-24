@@ -16,6 +16,22 @@
 // straight into the database — bypassing validation completely, the way a
 // hand-edited row or a future caller that forgets would — and checks the slot
 // still holds.
+//
+// MEASURED lines are the record behind numbers quoted in README.md and
+// CLAUDE.md. verify-docs.js reads them and fails if a document and this file
+// disagree, so a measurement cannot be quoted in prose without living here too.
+// Update the line and the docs in the same commit as the re-measurement.
+//
+// MEASURED: injection-rule-before-slot-only = 6 of 8 runs compromised
+//   Containment rule stated only BEFORE the slot, brackets stripped, no escape
+//   attempted: the model obeyed plain instructions inside the slot in 6 of 8
+//   runs, and leaked the system prompt in the same ones.
+//
+// MEASURED: injection-rule-restated-after-slot = 0 of 24 compromised
+//   With the rule restated after the closing marker (CLAUDE.md §6, finding 3),
+//   across 24 runs. The two structural checks below are what keep that
+//   paragraph in place between re-measurements; this suite runs 3 live trials
+//   per invocation, so 24 is eight of those, not one.
 // ===========================================================================
 
 import {

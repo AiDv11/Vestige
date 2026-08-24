@@ -15,6 +15,14 @@
 // rows survive, which is decided before the model is ever called — so a Groq
 // outage cannot turn a truncation bug green, and cannot turn a working one
 // red either.
+//
+// MEASURED lines are the record behind numbers quoted in README.md and
+// CLAUDE.md; verify-docs.js fails if a document disagrees with one.
+//
+// MEASURED: edit-truncation-off-by-one = 5 failures
+//   Mutating `id >= ?` to `id > ?` in deleteMessagesFrom turns 5 of the checks
+//   below red. The docs quoted 9 for a long time — that came from the earlier
+//   suite that was lost, and no run of THIS file ever produced it.
 // ===========================================================================
 
 import { allOf, api, finalEvent, newSession, store, stream } from "./helpers.js";

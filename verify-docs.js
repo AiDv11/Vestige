@@ -16,7 +16,7 @@
  * breaking it before trusting a green run.
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { FONT_CHOICES, MET_DEPARTMENTS, MIN_HUE_GAP, ERAS } from "./lib/eras.js";
 
 const read = (p) => (existsSync(p) ? readFileSync(p, "utf8") : "");
@@ -336,7 +336,215 @@ for (const [name, text] of DOCS) {
 }
 
 // ---------------------------------------------------------------------------
-// 7. Every path the docs name should exist.
+// 7. Measured numbers, and the suite that produced them.
+//
+// Section 6 checks numbers that are DERIVABLE — count the fonts, count the
+// routes, and you know whether the prose is right. These are the other kind:
+// numbers that exist only because somebody ran something. "6 of 8 runs
+// compromised". "5 failures". Nothing derives them, so nothing notices when
+// they stop being true, and they are the most persuasive sentences in either
+// document precisely because they sound like evidence.
+//
+// Both documents carried wrong ones, and not briefly. CLAUDE.md §7 credited
+// message-edit truncation to a mutation that "produced 9 failures" — the suite
+// that produced the 9 had been written to a scratch directory and lost, and
+// the rebuilt one produces 5. §6 described the injection defence as two
+// findings, tested and contained, while the third and decisive one had not
+// been found yet. Same failure both times: the prose outlived the run behind
+// it, and the run was not somewhere anyone could repeat.
+//
+// So the rule is that a measured number quoted in a document has to be
+// recorded in the test file that measures it, on a `// MEASURED: key = …`
+// line, and the two have to agree. This catches drift in both directions:
+//
+//   - a document quoting a number the suite does not record;
+//   - a document and a suite disagreeing about a number they both state;
+//   - a claim quietly DELETED from one document rather than corrected, which
+//     is the direction a checker built only from the docs cannot see.
+//
+// It does not, and cannot, verify that the recorded number is what a fresh run
+// would produce. Nothing short of re-running the mutation does that. What it
+// buys is that the number has one home instead of three, and that home is next
+// to the code that measures it.
+//
+// SCOPE, stated honestly: the sweep below recognises measurement-SHAPED text —
+// `N/M`, `N of M`, `N failures/runs/trials`. A measured number written in
+// another shape ("returns 128 hits") slips through. Widening the shapes is
+// cheap; guessing which prose numbers are measurements is not, and a checker
+// that cries wolf gets deleted. Add a shape when a claim needs one.
+//
+// Proven to bite (§10 — a green run means nothing if red was unreachable).
+// Each of these was applied, run, and reverted:
+//
+//   a doc quoting a stale number ........................ RED
+//   a MEASURED line deleted from the suite .............. RED
+//   a suite and a doc disagreeing about a number ........ RED
+//   a claim deleted from one doc instead of corrected ... RED
+//   a new measured number added to prose only ........... RED
+//   a suite on disk that run.js never runs .............. RED
+// ---------------------------------------------------------------------------
+
+group("Measured numbers vs. the suite that produced them");
+
+const TEST_DIR = "tests";
+const testFiles = existsSync(TEST_DIR)
+  ? readdirSync(TEST_DIR)
+      .filter((f) => f.endsWith(".test.js"))
+      .map((f) => `${TEST_DIR}/${f}`)
+  : [];
+
+check("there are test files to check the docs against", testFiles.length > 0, TEST_DIR);
+
+// Every suite on disk has to be registered in the runner. An unregistered
+// suite is this same bug in miniature: a file that looks like proof and never
+// runs.
+const RUNNER = read("tests/run.js");
+const unregistered = testFiles.filter(
+  (f) => !RUNNER.includes(f.slice(TEST_DIR.length + 1)),
+);
+check(
+  "every suite in tests/ is registered in tests/run.js",
+  unregistered.length === 0,
+  unregistered.length ? `not in SUITES: ${unregistered.join(", ")}` : "",
+);
+
+const integersIn = (s) => (s.match(/\d+/g) ?? []).map(Number);
+
+// `// MEASURED: key = 6 of 8 runs compromised`  ->  key => [6, 8]
+const MEASURED_LINE =
+  /^[ \t]*\/\/[ \t]*MEASURED:[ \t]*([a-z0-9-]+)[ \t]*=[ \t]*(.+)$/gm;
+
+const measured = new Map();
+for (const file of testFiles) {
+  for (const [, key, value] of read(file).matchAll(MEASURED_LINE)) {
+    measured.set(key, { file, value: value.trim(), numbers: integersIn(value) });
+  }
+}
+
+/**
+ * Every measured claim the documents are allowed to make.
+ *
+ * `quotes` are the exact phrasings, and they are deliberately specific: a
+ * pattern loose enough to survive a rewrite is loose enough to match the wrong
+ * sentence. If a rewrite breaks one of these, that is the check working — the
+ * sentence carrying the number changed, so somebody should confirm the number
+ * still belongs in it.
+ *
+ * Every doc must state each claim at least once, and EVERY occurrence of one
+ * in either doc must agree with the MEASURED line.
+ */
+const MEASURED_CLAIMS = [
+  {
+    key: "injection-rule-before-slot-only",
+    what: "runs compromised with the containment rule stated only before the slot",
+    quotes: [
+      /\*\*(\d+) of (\d+) runs compromised\*\*/g,
+      /and (\d+) of (\d+) got through/g,
+    ],
+  },
+  {
+    key: "injection-rule-restated-after-slot",
+    what: "runs compromised once the rule is restated after the closing marker",
+    quotes: [/\*\*(\d+) of (\d+)\s+compromised\*\*/g],
+  },
+  {
+    key: "edit-truncation-off-by-one",
+    what: "failing checks when edit truncation is mutated off by one",
+    quotes: [/produced \*{0,2}(\d+) failures?\*{0,2}/g],
+  },
+];
+
+// Ranges of each doc that a registered claim accounts for, so the sweep below
+// can tell a checked number from an unchecked one.
+const covered = new Map(DOCS.map(([name]) => [name, []]));
+
+for (const claim of MEASURED_CLAIMS) {
+  const record = measured.get(claim.key);
+
+  check(
+    `tests/ records a measurement for "${claim.key}"`,
+    !!record,
+    record
+      ? ""
+      : `no "// MEASURED: ${claim.key} = …" line in ${testFiles.join(", ") || "tests/"}`,
+  );
+  if (!record) continue;
+
+  check(
+    `  ${claim.key} = ${record.value} (${record.file})`,
+    record.numbers.length > 0,
+    "a MEASURED line with no number in it records nothing",
+  );
+
+  for (const [name, text] of DOCS) {
+    const found = [];
+    for (const quote of claim.quotes) {
+      for (const m of text.matchAll(quote)) {
+        found.push(m);
+        covered.get(name).push([m.index, m.index + m[0].length]);
+      }
+    }
+
+    check(
+      `${name} states ${claim.what}`,
+      found.length > 0,
+      `expected one of: ${claim.quotes.map((q) => q.source).join("  |  ")}`,
+    );
+
+    for (const m of found) {
+      const quoted = m.slice(1).map(Number);
+      check(
+        `${name}: "${m[0].replace(/\s+/g, " ")}" agrees with ${record.file}`,
+        quoted.length === record.numbers.length &&
+          quoted.every((n, i) => n === record.numbers[i]),
+        `doc says ${quoted.join("/")}, ${record.file} records ${record.numbers.join("/")} — ` +
+          "re-measure and update both, or the number is fiction",
+      );
+    }
+  }
+}
+
+// A MEASURED line nothing quotes is not a failure: a suite is allowed to record
+// more than the prose uses. Worth naming, though, because it is usually a claim
+// that got deleted from the docs instead of corrected.
+const quotedKeys = new Set(MEASURED_CLAIMS.map((c) => c.key));
+for (const [key, record] of measured) {
+  if (quotedKeys.has(key)) continue;
+  console.log(`  note  ${record.file} records "${key}" (${record.value}), which no doc quotes`);
+}
+
+// The sweep: measurement-shaped text in either document that no claim above
+// accounts for. This is what stops the next number from being added to the
+// prose alone.
+const MEASUREMENT_SHAPES = [
+  /\b\d+\s*\/\s*\d+\b/g,
+  /\b\d+ of \d+\b/g,
+  /\b\d+ (?:failures?|runs?|trials?)\b/g,
+];
+
+for (const [name, text] of DOCS) {
+  const ranges = covered.get(name);
+  const loose = new Set();
+
+  for (const shape of MEASUREMENT_SHAPES) {
+    for (const m of text.matchAll(shape)) {
+      const start = m.index;
+      const end = start + m[0].length;
+      if (ranges.some(([from, to]) => start >= from && end <= to)) continue;
+      const context = text.slice(Math.max(0, start - 44), end).replace(/\s+/g, " ").trim();
+      loose.add(`"${m[0]}"  …${context}`);
+    }
+  }
+
+  check(
+    `${name} quotes no measured number the suite does not record`,
+    loose.size === 0,
+    loose.size ? [...loose].join("\n          ") : "",
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 8. Every path the docs name should exist.
 //
 // The general version of check 3: catches a file map that drifts from the tree
 // in either direction. client/dist and data/ are generated, so they are exempt.
