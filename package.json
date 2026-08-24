@@ -10,7 +10,9 @@
     "start": "node --watch server.js",
     "server": "node server.js",
     "build": "cd client && npm install && npm run build",
-    "cli": "node index.js"
+    "cli": "node index.js",
+    "test": "node tests/run.js",
+    "verify-docs": "node verify-docs.js"
   },
 
   
