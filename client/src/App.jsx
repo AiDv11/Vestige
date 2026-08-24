@@ -107,10 +107,13 @@ export default function App() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // The one thing screen readers are told about, once per finished reply.
+  const [announcement, setAnnouncement] = useState("");
+
   // UI-only state.
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [toast, setToast] = useState(null);
-  const [menu, setMenu] = useState(null); // { conversation, top, left }
+  const [menu, setMenu] = useState(null); // { conversation, top, left, trigger }
   const [renamingId, setRenamingId] = useState(null);
   const [renameText, setRenameText] = useState("");
   const [confirmTarget, setConfirmTarget] = useState(null);
@@ -125,6 +128,11 @@ export default function App() {
   const abortRef = useRef(null);
   const transcriptRef = useRef(null);
   const dialogRef = useRef(null);
+  const menuRef = useRef(null);
+
+  // Escape during a rename must cancel, not save. The input's blur handler
+  // fires as it unmounts, so without this flag Escape would still commit.
+  const renameCancelled = useRef(false);
 
   // Hovering an era previews it; otherwise the selected era themes the page.
   useEra(eras, hoverEra ?? era);
@@ -153,8 +161,16 @@ export default function App() {
     else dialogRef.current?.close();
   }, [confirmTarget]);
 
+  // Opening the row menu moves focus into it, so it can be driven entirely
+  // from the keyboard.
+  useEffect(() => {
+    if (!menu) return;
+    menuRef.current?.querySelector(".menu__item")?.focus();
+  }, [menu]);
+
   // A fixed-position menu doesn't follow its button, so dismiss it rather than
-  // letting it drift away from the row it belongs to.
+  // letting it drift away from the row it belongs to. Focus is NOT restored
+  // here — the user clicked or scrolled elsewhere deliberately.
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
@@ -167,6 +183,14 @@ export default function App() {
       document.removeEventListener("click", close);
     };
   }, [menu]);
+
+  // Escape closes the mobile drawer. The menu and dialog handle their own.
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const onKey = (e) => e.key === "Escape" && setDrawerOpen(false);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [drawerOpen]);
 
   useEffect(() => {
     if (!toast) return;
@@ -202,6 +226,20 @@ export default function App() {
     });
   }
 
+  /**
+   * Errors get their own bubble with a retry, not text dumped into the reply.
+   * A placeholder that never received a token is dropped; partial text is
+   * kept, because the server stored it and the user watched it appear.
+   */
+  function showError(message) {
+    setMessages((prev) => {
+      const next = [...prev];
+      const last = next[next.length - 1];
+      if (last?.role === "assistant" && !last.content) next.pop();
+      return [...next, { role: "error", content: message }];
+    });
+  }
+
   // ---- streaming ----------------------------------------------------------
 
   /**
@@ -213,6 +251,9 @@ export default function App() {
     const controller = new AbortController();
     abortRef.current = controller;
     setBusy(true);
+
+    // Accumulated locally so the finished reply can be announced in one piece.
+    let full = "";
 
     try {
       const res = await fetch(url, {
@@ -241,6 +282,7 @@ export default function App() {
             break;
 
           case "delta":
+            full += evt.text;
             appendToLast(evt.text);
             break;
 
@@ -248,6 +290,9 @@ export default function App() {
             // Release the composer here, NOT in finally. The stream stays open
             // past this point purely to deliver artifacts.
             setBusy(false);
+            // Announce the finished reply once. The transcript itself is not a
+            // live region, precisely so this isn't said on every token.
+            setAnnouncement(full);
             // The server renames the conversation from its opening question,
             // so re-reading the list is enough to pick the new title up.
             if (evt.title) refreshConversations();
@@ -258,13 +303,13 @@ export default function App() {
             break;
 
           case "error":
-            appendToLast(`\n\n${evt.error}`);
+            showError(evt.error);
             setBusy(false);
             break;
         }
       }
     } catch (err) {
-      if (err.name !== "AbortError") appendToLast(`\n\n${err.message}`);
+      if (err.name !== "AbortError") showError(err.message);
     } finally {
       // A safety net for paths that never reached `done` — an abort, or a
       // failure before the stream opened.
@@ -300,7 +345,7 @@ export default function App() {
         id = (await res.json()).id;
         setConversationId(id);
       } catch (err) {
-        appendToLast(`\n\n${err.message}`);
+        showError(err.message);
         setBusy(false);
         return;
       }
@@ -310,15 +355,20 @@ export default function App() {
   }
 
   /**
-   * Ask for a fresh reply. The server only drops a stored reply if one is
-   * actually last, so this doubles as "try again" after a failed turn.
+   * Ask for a fresh reply.
+   *
+   * Used two ways: the Regenerate button, which discards the reply on screen
+   * first, and Try again after an error, where there is no reply to discard —
+   * the server endpoint only drops a stored reply if one is actually last.
    */
-  async function regenerate() {
+  async function regenerate({ dropLocalReply = true } = {}) {
     if (busy || !conversationId) return;
 
     setMessages((prev) => {
       const next = [...prev];
-      if (next[next.length - 1]?.role === "assistant") next.pop();
+      // Any trailing error bubble is being replaced by this attempt.
+      while (next.length && next[next.length - 1].role === "error") next.pop();
+      if (dropLocalReply && next[next.length - 1]?.role === "assistant") next.pop();
       return [...next, { role: "assistant", content: "" }];
     });
 
@@ -374,7 +424,15 @@ export default function App() {
     setAtBottom(true);
   }
 
+  function startRename(conversation) {
+    renameCancelled.current = false;
+    setRenameText(conversation.title);
+    setRenamingId(conversation.id);
+  }
+
   async function commitRename(conversation) {
+    if (renameCancelled.current) return;
+
     const title = renameText.trim().slice(0, 60);
     setRenamingId(null);
     if (!title || title === conversation.title) return;
@@ -411,6 +469,28 @@ export default function App() {
     setConversations((prev) => prev.filter((c) => c.id !== conversation.id));
     setToast("Conversation deleted");
     if (conversation.id === conversationId) startNewChat();
+  }
+
+  // ---- row menu -----------------------------------------------------------
+
+  function closeMenu({ restoreFocus = true } = {}) {
+    const trigger = menu?.trigger;
+    setMenu(null);
+    if (restoreFocus) trigger?.focus();
+  }
+
+  function onMenuKeyDown(ev) {
+    const items = [...(menuRef.current?.querySelectorAll(".menu__item") ?? [])];
+    const i = items.indexOf(document.activeElement);
+
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      ev.preventDefault();
+      const step = ev.key === "ArrowDown" ? 1 : -1;
+      items[(i + step + items.length) % items.length]?.focus();
+    } else if (ev.key === "Escape") {
+      ev.preventDefault();
+      closeMenu();
+    }
   }
 
   // ---- eras ---------------------------------------------------------------
@@ -475,6 +555,13 @@ export default function App() {
     "New conversation";
   const starters = STARTERS[era] ?? [];
 
+  // So several open tabs are tellable apart.
+  useEffect(() => {
+    document.title = conversationId
+      ? `${currentTitle} — Vestige`
+      : "Vestige — ask the past";
+  }, [conversationId, currentTitle]);
+
   // The indicator belongs to the gap between "sent" and "first token", which
   // is exactly an empty assistant turn at the end of the list.
   const waiting =
@@ -492,13 +579,16 @@ export default function App() {
       <aside className="rail">
         <div className="rail__head">
           <h1 className="brand">
+            <svg className="brand__mark" aria-hidden="true" focusable="false">
+              <use href="#vestige-mark" />
+            </svg>
             <span className="brand__name">Vestige</span>
             <span className="brand__tag">ask the past</span>
           </h1>
         </div>
 
         <button type="button" className="new-chat" onClick={startNewChat}>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path
               d="M12 5v14M5 12h14"
               fill="none"
@@ -510,7 +600,7 @@ export default function App() {
           New chat
         </button>
 
-        <div className="convos">
+        <nav className="convos" aria-label="Your conversations">
           {conversations.length === 0 ? (
             <p className="convos__empty">No conversations yet.</p>
           ) : (
@@ -540,6 +630,9 @@ export default function App() {
                             commitRename(c);
                           } else if (ev.key === "Escape") {
                             ev.preventDefault();
+                            // Set before the state change: unmounting the input
+                            // fires onBlur, which would otherwise save.
+                            renameCancelled.current = true;
                             setRenamingId(null);
                           }
                         }}
@@ -564,19 +657,18 @@ export default function App() {
                       aria-label={`Options for ${c.title}`}
                       onClick={(ev) => {
                         ev.stopPropagation();
-                        const r = ev.currentTarget.getBoundingClientRect();
-                        setMenu(
-                          menu?.conversation.id === c.id
-                            ? null
-                            : {
-                                conversation: c,
-                                top: r.bottom + 6,
-                                left: Math.max(6, r.right - 160),
-                              },
-                        );
+                        if (menu?.conversation.id === c.id) return closeMenu();
+                        const trigger = ev.currentTarget;
+                        const r = trigger.getBoundingClientRect();
+                        setMenu({
+                          conversation: c,
+                          top: r.bottom + 6,
+                          left: Math.max(6, r.right - 160),
+                          trigger,
+                        });
                       }}
                     >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                         <circle cx="5" cy="12" r="1.6" fill="currentColor" />
                         <circle cx="12" cy="12" r="1.6" fill="currentColor" />
                         <circle cx="19" cy="12" r="1.6" fill="currentColor" />
@@ -587,7 +679,7 @@ export default function App() {
               </section>
             ))
           )}
-        </div>
+        </nav>
 
         <div className="rail__foot">
           <p className="caveat">
@@ -610,10 +702,10 @@ export default function App() {
           <button
             type="button"
             className="icon-btn chat__menu"
-            aria-label="Open conversations"
+            aria-label="Show conversations"
             onClick={() => setDrawerOpen(true)}
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path
                 d="M4 7h16M4 12h16M4 17h16"
                 fill="none"
@@ -630,21 +722,27 @@ export default function App() {
           </div>
         </header>
 
+        {/*
+          Deliberately NOT aria-live. The reply is rewritten on every streamed
+          token, so a live region here would re-announce the whole answer
+          hundreds of times. The finished reply is announced once, via the
+          polite region at the end of the document instead.
+        */}
         <div
           className="transcript"
           ref={transcriptRef}
+          role="log"
+          aria-label="Conversation"
           onScroll={onTranscriptScroll}
         >
           {messages.length === 0 ? (
             <div className="empty">
               <div className="empty__brand">
-               <div className="empty__brand">
-                    <svg className="empty__mark" aria-hidden="true" focusable="false">
-                      <use href="#vestige-mark" />
-                    </svg>
-                    <h2 className="empty__name">Vestige</h2>
-                    <span className="empty__tag">ask the past</span>
-                  </div>
+                <svg className="empty__mark" aria-hidden="true" focusable="false">
+                  <use href="#vestige-mark" />
+                </svg>
+                <h2 className="empty__name">Vestige</h2>
+                <span className="empty__tag">ask the past</span>
               </div>
 
               <p className="empty__sub">
@@ -656,22 +754,22 @@ export default function App() {
               <div className="era-picker">
                 {eras.map((e) => (
                   <div
-                        key={e.id}
-                        className={e.custom ? "era-opt era-opt--custom" : "era-opt"}
-                        data-era={e.id}
-                        data-selected={String(e.id === era)}
-                        style={
-                          e.custom
-                            ? {
-                                "--era-accent": `oklch(0.66 0.15 ${
-                                  ((Number(e.hue) % 360) + 360) % 360 || 0
-                                })`,
-                              }
-                            : undefined
-                        }
-                        onPointerEnter={() => setHoverEra(e.id)}
-                        onPointerLeave={() => setHoverEra(null)}
-                      >
+                    key={e.id}
+                    className={e.custom ? "era-opt era-opt--custom" : "era-opt"}
+                    data-era={e.id}
+                    data-selected={String(e.id === era)}
+                    style={
+                      e.custom
+                        ? {
+                            "--era-accent": `oklch(0.66 0.15 ${
+                              ((Number(e.hue) % 360) + 360) % 360 || 0
+                            })`,
+                          }
+                        : undefined
+                    }
+                    onPointerEnter={() => setHoverEra(e.id)}
+                    onPointerLeave={() => setHoverEra(null)}
+                  >
                     <button
                       type="button"
                       className="era-opt__choose"
@@ -682,6 +780,7 @@ export default function App() {
                         {e.custom && (
                           <span
                             className="era-opt__dot"
+                            aria-hidden="true"
                             style={{
                               "--era-dot": `oklch(0.66 0.15 ${
                                 ((Number(e.hue) % 360) + 360) % 360 || 0
@@ -704,7 +803,7 @@ export default function App() {
                         aria-label={`Delete the ${e.label} era`}
                         onClick={() => removeEra(e)}
                       >
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                           <path
                             d="M6 6l12 12M18 6L6 18"
                             fill="none"
@@ -758,6 +857,7 @@ export default function App() {
                             ? "era-new__note era-new__note--error"
                             : "era-new__note"
                         }
+                        role={eraNote.error ? "alert" : "status"}
                       >
                         {eraNote.text}
                       </p>
@@ -769,7 +869,7 @@ export default function App() {
                     className="era-add"
                     onClick={() => setAddingEra(true)}
                   >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                       <path
                         d="M12 5v14M5 12h14"
                         fill="none"
@@ -802,66 +902,90 @@ export default function App() {
               )}
             </div>
           ) : (
-            messages.map((m, i) =>
-              m.role === "user" ? (
-                <div key={i} className="msg msg--user">
-                  {editingIndex === i ? (
-                    <>
-                      <textarea
-                        className="msg__edit"
-                        value={editText}
-                        autoFocus
-                        aria-label="Edit your message"
-                        onChange={(ev) => setEditText(ev.target.value)}
-                        onKeyDown={(ev) => {
-                          if (ev.key === "Enter" && !ev.shiftKey) {
-                            ev.preventDefault();
-                            submitEdit(i);
-                          } else if (ev.key === "Escape") {
-                            ev.preventDefault();
-                            setEditingIndex(null);
-                          }
-                        }}
-                      />
-                      <div className="msg__edit-actions">
-                        <button
-                          type="button"
-                          className="act"
-                          onClick={() => setEditingIndex(null)}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          className="act act--primary"
-                          onClick={() => submitEdit(i)}
-                        >
-                          Save &amp; resend
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="msg__bubble">{m.content}</div>
-                      <div className="msg__actions">
-                        <button
-                          type="button"
-                          className="act"
-                          onClick={() => {
-                            // The id arrives from the stream slightly after the
-                            // message appears, so it can briefly be missing.
-                            if (!m.id) return setToast("Still saving — try again in a moment");
-                            setEditingIndex(i);
-                            setEditText(m.content);
+            messages.map((m, i) => {
+              if (m.role === "user") {
+                return (
+                  <div key={i} className="msg msg--user">
+                    {editingIndex === i ? (
+                      <>
+                        <textarea
+                          className="msg__edit"
+                          value={editText}
+                          autoFocus
+                          aria-label="Edit your message"
+                          onChange={(ev) => setEditText(ev.target.value)}
+                          onKeyDown={(ev) => {
+                            if (ev.key === "Enter" && !ev.shiftKey) {
+                              ev.preventDefault();
+                              submitEdit(i);
+                            } else if (ev.key === "Escape") {
+                              ev.preventDefault();
+                              setEditingIndex(null);
+                            }
                           }}
-                        >
-                          Edit
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              ) : (
+                        />
+                        <div className="msg__edit-actions">
+                          <button
+                            type="button"
+                            className="act"
+                            onClick={() => setEditingIndex(null)}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            className="act act--primary"
+                            onClick={() => submitEdit(i)}
+                          >
+                            Save &amp; resend
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="msg__bubble">{m.content}</div>
+                        <div className="msg__actions">
+                          <button
+                            type="button"
+                            className="act"
+                            onClick={() => {
+                              // The id arrives from the stream slightly after
+                              // the message appears, so it can briefly be
+                              // missing.
+                              if (!m.id) {
+                                return setToast("Still saving — try again in a moment");
+                              }
+                              setEditingIndex(i);
+                              setEditText(m.content);
+                            }}
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              }
+
+              if (m.role === "error") {
+                // Without a retry an error is a dead end — the question is
+                // already stored server-side, so trying again costs a click.
+                return (
+                  <div key={i} className="msg msg--error" role="alert">
+                    <span>{m.content}</span>
+                    <button
+                      type="button"
+                      className="act"
+                      onClick={() => regenerate({ dropLocalReply: false })}
+                    >
+                      Try again
+                    </button>
+                  </div>
+                );
+              }
+
+              return (
                 <div key={i} className="msg msg--bot">
                   <p className="msg__who">{currentEra?.label ?? "History"}</p>
                   <div className="msg__body">
@@ -881,13 +1005,17 @@ export default function App() {
                     >
                       Copy
                     </button>
-                    <button type="button" className="act" onClick={regenerate}>
+                    <button
+                      type="button"
+                      className="act"
+                      onClick={() => regenerate()}
+                    >
                       Regenerate
                     </button>
                   </div>
                 </div>
-              ),
-            )
+              );
+            })
           )}
 
           {waiting && <Thinking era={era} />}
@@ -904,7 +1032,7 @@ export default function App() {
                 if (el) el.scrollTop = el.scrollHeight;
               }}
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                 <path
                   d="M12 5v14M6 13l6 6 6-6"
                   fill="none"
@@ -919,7 +1047,11 @@ export default function App() {
           )}
 
           <div className="composer">
+            <label className="sr-only" htmlFor="prompt">
+              Ask a history question
+            </label>
             <textarea
+              id="prompt"
               className="composer__input"
               rows={1}
               value={input}
@@ -934,7 +1066,8 @@ export default function App() {
                   send();
                 }
               }}
-              placeholder="Ask a history question..."
+              placeholder="Ask a history question…"
+              autoComplete="off"
             />
             <button
               type="button"
@@ -947,9 +1080,10 @@ export default function App() {
                 className="composer__icon composer__icon--send"
                 viewBox="0 0 24 24"
                 aria-hidden="true"
+                focusable="false"
               >
                 <path
-                  d="M4 12h14M13 6l6 6-6 6"
+                  d="M5 12h13m0 0-5.5-5.5M18 12l-5.5 5.5"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="2"
@@ -961,8 +1095,9 @@ export default function App() {
                 className="composer__icon composer__icon--abort"
                 viewBox="0 0 24 24"
                 aria-hidden="true"
+                focusable="false"
               >
-                <rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" />
+                <rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" />
               </svg>
             </button>
           </div>
@@ -972,28 +1107,54 @@ export default function App() {
       {menu && (
         <div
           className="menu"
+          role="menu"
+          ref={menuRef}
           style={{ top: menu.top, left: menu.left }}
           onClick={(ev) => ev.stopPropagation()}
+          onKeyDown={onMenuKeyDown}
         >
           <button
             type="button"
             className="menu__item"
+            role="menuitem"
             onClick={() => {
-              setRenameText(menu.conversation.title);
-              setRenamingId(menu.conversation.id);
-              setMenu(null);
+              const c = menu.conversation;
+              closeMenu({ restoreFocus: false });
+              startRename(c);
             }}
           >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
             Rename
           </button>
           <button
             type="button"
             className="menu__item menu__item--danger"
+            role="menuitem"
             onClick={() => {
-              setConfirmTarget(menu.conversation);
-              setMenu(null);
+              const c = menu.conversation;
+              closeMenu({ restoreFocus: false });
+              setConfirmTarget(c);
             }}
           >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13M10 11v6M14 11v6"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
             Delete
           </button>
         </div>
@@ -1004,9 +1165,10 @@ export default function App() {
         ref={dialogRef}
         onClose={() => setConfirmTarget(null)}
       >
-        <h2 className="confirm__title">Delete conversation?</h2>
+        <h2 className="confirm__title">Delete this conversation?</h2>
         <p className="confirm__body">
-          “{confirmTarget?.title}” will be permanently removed.
+          <strong>{confirmTarget?.title}</strong> and all its messages will be
+          permanently removed. This can't be undone.
         </p>
         <div className="confirm__actions">
           <button
@@ -1031,6 +1193,14 @@ export default function App() {
           {toast}
         </div>
       )}
+
+      {/*
+        Announces one finished reply at a time to screen readers. Kept out of
+        the transcript on purpose — see the comment on .transcript above.
+      */}
+      <div className="sr-only" role="status" aria-live="polite">
+        {announcement}
+      </div>
     </div>
   );
 }
@@ -1047,7 +1217,7 @@ function Thinking({ era }) {
 
   return (
     <div className="thinking">
-      <span className="thinking__dots">
+      <span className="thinking__dots" aria-hidden="true">
         <i />
         <i />
         <i />
