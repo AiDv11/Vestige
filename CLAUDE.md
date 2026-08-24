@@ -62,11 +62,13 @@ read §6 before touching any of it.
 | Server | Express 4 | Minimal, familiar |
 | Model | `openai/gpt-oss-120b` via **Groq** | Free tier, no credit card. Chosen over Google Gemini because a friend of his uses Groq and can help him when stuck — that support outweighed a small model-quality difference. |
 | Storage | `node:sqlite` | Built into Node 22+. Zero dependencies, no native compilation. |
-| Frontend | Vanilla HTML/CSS/JS | No build step. A React rewrite of *only the frontend* is the planned phase 2, deliberately, so he learns React by comparison against an app he already understands. |
+| Frontend | **React 19 + Vite**, in `client/` | Phase 2 of his learning plan, now done. The app was first built in vanilla HTML/CSS/JS with no build step, then rebuilt in React deliberately, so React is learned by comparison against an app he already understands. The vanilla version is still on disk in `public/` as the reference — see §4. |
 | Artifacts | Met Museum Open Access API | No key, no auth |
 
 **Three runtime dependencies total:** `express`, `groq-sdk`, `dotenv`.
-Keep it that way unless there's a strong reason not to.
+Keep it that way unless there's a strong reason not to. `react` and `react-dom`
+don't count against that: they're `client/`'s dependencies, they're bundled into
+`client/dist` at build time, and the server process never imports them.
 
 ---
 
@@ -82,15 +84,31 @@ lib/chat.js          everything that talks to Groq (streaming, titling, JSON)
 lib/artifacts.js     Met Museum lookup
 lib/db.js            SQLite schema, migrations, queries
 lib/rateLimit.js     in-memory per-visitor request cap
-public/index.html    markup, incl. the footprint <symbol> and social meta tags
-public/style.css     all styling, no framework
-public/app.js        all client logic, no framework
-public/favicon.svg   the footprint mark, standalone (see §11 re: XML comments)
-public/og.png        1200x630 social preview card
+
+client/index.html    the shell: social meta tags, the footprint <symbol>, #root
+client/src/main.jsx  React entry — mounts <App> into #root
+client/src/App.jsx   the whole UI, one component tree
+client/src/Markdown.jsx  the markdown subset, as React elements (see §11)
+client/src/useEra.js     era theming: accent, typeface, on-demand font <link>
+client/src/style.css     ported unchanged from public/style.css
+client/public/       favicon.svg, og.png, icons.svg — copied verbatim into dist
+                     (see §11 re: XML comments in favicon.svg)
+client/vite.config.js    React plugin, and the dev proxy /api → :3000
+client/dist/         the build output. This is what Express serves. Gitignored.
+
+public/              **the old vanilla frontend — no longer served.** Kept on
+                     disk as the reference implementation the React version was
+                     ported from, and as the thing he can diff against when
+                     explaining React in an interview. `server.js` points at
+                     `client/dist`. Delete it only when he says so.
+
 index.js             the original terminal-only version, kept as history
 PRODUCT.md           design strategy and rationale
 README.md            user-facing documentation
 ```
+
+`client/src/assets/` is Vite scaffold leftovers (`react.svg`, `vite.svg`,
+`hero.png`) and nothing imports it. So is `client/README.md`.
 
 ---
 
@@ -267,21 +285,37 @@ a regression. Making it deterministic would mean injecting a fake `fetch`.
 - **Editing a sent message**, which truncates the conversation there and
   re-streams through the same path
 - **Custom eras**: generated, validated, session-scoped, deletable
+- **Per-card colours in the era picker.** Each card carries its own
+  `--era-accent` — set from its `data-era` attribute in CSS for the six
+  built-ins, inline for custom eras, which don't have a selector. This fixed a
+  real bug: hovering one era to preview it recoloured the *selected* card too,
+  because every card read the single global `--accent`. **Fixed in both
+  frontends**, so `public/` stays a faithful reference.
 - Met Museum artifacts, delivered after `done`, cached 6h, failure-tolerant
 - Rate limiting: 12 model calls/min per visitor, 30 writes/min
 - Responsive: sidebar becomes a drawer under 860px; the conversation column is
   centred on wide monitors via a `--gutter` custom property
 - Branding: the footprint mark (one `<symbol>`, used by both the sidebar and
   the empty state), favicon, and Open Graph / Twitter preview card
-- `render.yaml`, `/healthz`, and a route count in the startup log
+- **The React 19 + Vite frontend**, at feature parity with the vanilla version
+  bar one thing (§9). `server.js` serves `client/dist`; `npm run build` at the
+  root runs `cd client && npm install && npm run build`.
+- **Deployed and live** at `https://vestige-ilw5.onrender.com`, serving the
+  React build. `render.yaml` builds with `npm install && npm run build` and
+  starts with `npm run server` — **not** `npm start`, which runs `--watch` and
+  has no business in production. `/healthz` is the health check, and the startup
+  log prints a route count.
 
 ## 9. What is not built
 
-- **The React frontend rewrite** — phase 2 of his learning plan.
+- **The paced token reveal.** `REVEAL_SMOOTHNESS` in `public/app.js` — the
+  loop that lets rendered text catch up to arriving tokens smoothly instead of
+  jumping a chunk at a time. It's a `requestAnimationFrame` loop writing
+  straight to the DOM, which is the one thing that doesn't port over as-is, so
+  the React version paints tokens as they arrive. It needs rethinking, not
+  translating, before it fits. The vanilla implementation is still in `public/`
+  to work from. **This is the only feature gap between the two frontends.**
 - Conversation search, markdown export, accounts.
-- **Deployment status is unconfirmed.** A Render service name exists and the
-  social tags point at `https://vestige-ilw5.onrender.com`, but whether it is
-  currently serving has not been verified from this machine.
 
 ---
 
@@ -289,17 +323,33 @@ a regression. Making it deterministic would mean injecting a fake `fetch`.
 
 ```bash
 npm install
+npm run build      # builds client/dist — required before the server has a UI
 # .env must contain GROQ_API_KEY (get one free at console.groq.com)
 npm start          # http://localhost:3000, with --watch
 npm run server     # same, without --watch
 npm run cli        # the terminal version
 ```
 
+**Working on the frontend? Use the dev server.**
+
+```bash
+cd client && npm run dev    # http://localhost:5173, proxies /api → :3000
+```
+
+Run it alongside `npm start`, and edit against `:5173`. You get hot reload, and
+the API calls reach the real server through the Vite proxy.
+
+⚠️ **`:3000` serves `client/dist`, which is a build artifact. Editing
+`App.jsx` changes nothing there until you re-run `npm run build`.** This is the
+React-era version of the stale-server trap below, and it is more confusing,
+because the file you just saved is visibly correct on disk while the browser
+keeps showing the old build. If a change "isn't taking" on `:3000`: you're
+looking at a stale bundle. Either rebuild, or move to `:5173`.
+
 **A stale server has caused two confusing bugs so far**, and both looked like
-client bugs. Files in `public/` are re-read from disk on every request, so a
-browser refresh picks them up — but `server.js` and `lib/` are loaded once at
-startup. Client and server then drift, and the symptom is something like
-"editing does nothing" or "request failed".
+client bugs. `server.js` and `lib/` are loaded once at startup, so client and
+server drift, and the symptom is something like "editing does nothing" or
+"request failed".
 
 Two defences, both already in place:
 
@@ -308,6 +358,10 @@ Two defences, both already in place:
 - The startup log prints a **route count**: `12 routes | database: …`. If that
   number doesn't match the code you just edited, the server didn't restart.
   This is the fastest way to tell.
+
+(The old vanilla frontend didn't have the build problem — files in `public/`
+were re-read from disk on every request, so a browser refresh picked them up.
+That's the trade you make for the build step.)
 
 There is no test framework. Testing is standalone Node scripts run against a
 second server instance on port 3100 with `DB_PATH=data/test.db`, covering the
@@ -331,10 +385,21 @@ If you add a feature, add checks in the same style, and:
   and `lib/customEras.js` document API bugs and attack surfaces — keep them;
   they're the reason the code looks unusual.
 - **Model output, museum data, and custom era labels are all untrusted text.**
-  `md()` in `public/app.js` escapes HTML before applying a small markdown
-  subset; museum fields and era labels are set with `textContent`. Don't
-  introduce `innerHTML` on third-party strings — a custom era's label is
-  model-written and reaches the era picker.
+  A custom era's label is model-written and reaches the era picker; museum
+  fields come from a third party; replies come from the model.
+
+  In the React client this is **structural, not a rule to remember**.
+  `Markdown.jsx` parses the markdown subset into React *elements*, so every
+  piece of text is a text node and there is no HTML string for anything to
+  escape out of. **`dangerouslySetInnerHTML` appears nowhere in `client/`.**
+  Keep it that way — that single grep is the whole audit, and it's the honest
+  answer if he's asked about XSS in an interview.
+
+  The vanilla version in `public/` did it the other way round: `md()` in
+  `public/app.js` escapes HTML by hand before building a string, because it
+  ends at `innerHTML`, and museum fields and era labels are set with
+  `textContent`. That's the version where forgetting a step is possible — worth
+  knowing, since it's the comparison that makes the React one interesting.
 - Secrets live in `.env`, which is gitignored and has never been committed
   (verified). `data/` is gitignored too — it holds real conversations.
 - Every interactive element needs keyboard access and a visible focus state;
@@ -355,7 +420,9 @@ If you add a feature, add checks in the same style, and:
   second approach is better where it fits, because it makes the broken state
   unexpressible rather than merely guarded against.
 - A standalone `.svg` file is XML, so a comment inside it can never contain a
-  double hyphen — `public/favicon.svg` failed to parse because its comment
+  double hyphen — the favicon (now `client/public/favicon.svg`, copied verbatim
+  into the build; the original is still at `public/favicon.svg`) failed to parse
+  because its comment
   mentioned a CSS custom property by name. Write "the accent variable", not the
   literal token, inside SVG comments.
 - `app.router` on Express 4 is a deprecated getter that **throws**. Optional

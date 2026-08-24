@@ -82,6 +82,16 @@ The visitor's own input is gated before it reaches any of this: a 60-character
 cap, a character whitelist, and control characters refused rather than
 normalised, so a newline can't be quietly flattened into something that passes.
 
+Then there is the other end of it: all of that text — model replies, museum
+fields, and a custom era's model-written label — eventually gets rendered. In
+the React client that is handled by construction rather than by discipline.
+`Markdown.jsx` parses the markdown subset into **React elements**, not into an
+HTML string, so every piece of text ends up as a text node and there is nothing
+to escape out of. **`dangerouslySetInnerHTML` appears nowhere in `client/`** —
+one grep is the whole audit. The vanilla version had to do it the other way
+round, escaping by hand before assigning `innerHTML`, which is the version
+where forgetting a step is possible.
+
 ---
 
 ## Three Met API bugs, none of them documented
@@ -166,11 +176,18 @@ reason for the rule above.
 | Storage | `node:sqlite`, built in — three tables, no ORM |
 | Model | `openai/gpt-oss-120b` via Groq |
 | Artifacts | Met Museum Open Access API — no key, no auth |
-| Frontend | Vanilla HTML, CSS and JavaScript — no framework, no build step |
+| Frontend | React 19 + Vite, in `client/`, built to `client/dist` |
 
-Three runtime dependencies in total: `express`, `groq-sdk`, `dotenv`. The
-frontend is three files the browser reads directly. Groq uses the
-OpenAI-compatible format, so changing providers is a change to one file.
+Three runtime dependencies in total: `express`, `groq-sdk`, `dotenv`. `react`
+and `react-dom` are not among them — they are `client/`'s build dependencies,
+bundled into `client/dist` by Vite, and the server process never imports them.
+Groq uses the OpenAI-compatible format, so changing providers is a change to
+one file.
+
+The frontend was built twice on purpose. It was written first in vanilla HTML,
+CSS and JavaScript with no build step, then rebuilt in React against the same
+API — the second version is what ships, and the first is still in `public/` to
+read side by side.
 
 Rate limiting is per visitor: 12 model calls a minute, 30 writes.
 
@@ -182,7 +199,15 @@ lib/chat.js          everything that talks to Groq
 lib/artifacts.js     Met Museum lookup
 lib/db.js            SQLite schema and queries
 lib/rateLimit.js     per-visitor request cap
-public/              the frontend
+
+client/index.html    the shell: social meta tags, the footprint symbol, #root
+client/src/App.jsx   the whole UI
+client/src/Markdown.jsx  the markdown subset, rendered as React elements
+client/src/useEra.js     era theming: accent, typeface, on-demand font loading
+client/src/style.css     ported unchanged from public/style.css
+client/dist/         the build output — this is what Express serves
+
+public/              the original vanilla frontend. Kept as reference; not served.
 index.js             the original terminal version, kept as history
 ```
 
@@ -194,6 +219,7 @@ index.js             the original terminal version, kept as history
 git clone https://github.com/AiDv11/Vestige.git
 cd Vestige
 npm install
+npm run build             # builds client/dist — without it there is no UI
 cp .env.example .env      # then paste your Groq key into .env
 npm start
 ```
@@ -204,9 +230,23 @@ A free API key from [console.groq.com](https://console.groq.com) is all that is
 needed — no credit card. Requires **Node 22+**, for the built-in
 `node:sqlite`.
 
-`npm start` runs with `--watch`, so server changes reload automatically.
-`npm run server` runs without it. `npm run cli` starts the original terminal
-version.
+`npm run build` runs `cd client && npm install && npm run build`, so it
+installs the client's dependencies too. `npm start` runs the server with
+`--watch`, so server changes reload automatically. `npm run server` runs
+without it. `npm run cli` starts the original terminal version.
+
+### Working on the frontend
+
+```bash
+cd client && npm run dev    # http://localhost:5173, proxies /api to :3000
+```
+
+Run that alongside `npm start` and edit against **:5173**, which hot-reloads.
+API calls reach the real server through Vite's proxy.
+
+Port 3000 serves `client/dist`, which is a **build artifact**: editing
+`App.jsx` changes nothing there until you re-run `npm run build`. If a change
+isn't showing up on :3000, that's why.
 
 The startup line prints a route count:
 
@@ -216,16 +256,18 @@ Vestige running: http://localhost:3000
 ```
 
 If that number doesn't match the code you just edited, the server didn't
-restart — files in `public/` are re-read per request, but server code is loaded
-once.
+restart — server code is loaded once at startup.
 
 ---
 
 ## Deploying
 
 `render.yaml` is checked in, so connecting the repository at
-[render.com](https://render.com) is enough. Set `GROQ_API_KEY` in the dashboard;
-it is marked `sync: false` so it never lives in the repo.
+[render.com](https://render.com) is enough. It builds with
+`npm install && npm run build` — which builds the client — and starts with
+`npm run server`, deliberately not `npm start`, since `--watch` has no business
+in production. Set `GROQ_API_KEY` in the dashboard; it is marked `sync: false`
+so it never lives in the repo.
 
 Design reasoning is in [`PRODUCT.md`](./PRODUCT.md). Architectural notes and the
 decisions that must not be undone are in [`CLAUDE.md`](./CLAUDE.md).
