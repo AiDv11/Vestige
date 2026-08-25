@@ -10,20 +10,11 @@ language model.
 
 **Live: <https://vestige-ilw5.onrender.com>**
 
-<!-- The alt text below was written from the app's design, NOT from the image:
-     the file was a 0-byte placeholder when this was added. Check it against the
-     real screenshot and correct it — describing an image you cannot see is
-     exactly the kind of unverified claim the rest of this README argues
-     against. verify-docs.js fails until a real PNG is in place. -->
+![The Vestige interface: a dark near-black layout with a sidebar of saved conversations on the left, and in the centre a question 
+about Ibn al-Haytham with the assistant's answer and three photographed Metropolitan Museum objects below it, each captioned with
+ its title and curator-assigned date.](docs/screenshot.png)
 
-![The Vestige interface: a dark near-black three-column layout. On the left, a
-sidebar of saved conversations grouped by date. In the centre, a question about
-a historical subject and the assistant's streamed answer beneath it, with a row
-of photographed Metropolitan Museum objects below the reply, each captioned with
-its title and curator-assigned date. On the right, the era picker — Ancient
-Rome, Egypt, Medieval Europe, the Islamic Golden Age, Song China — each card
-carrying its own accent colour, with the selected era tinting the
-interface.](client/public/screenshot.png)
+!
 
 ---
 
