@@ -5,6 +5,7 @@ import Composer from "./Composer";
 import EraPicker from "./EraPicker";
 import Transcript from "./Transcript.jsx";
 import Sidebar from "./Sidebar";
+import RowMenu from "./RowMenu";
 
 /**
  * Turn an SSE response body into a stream of parsed event objects.
@@ -107,7 +108,7 @@ export default function App() {
   const abortRef = useRef(null);
   const transcriptRef = useRef(null);
   const dialogRef = useRef(null);
-  const menuRef = useRef(null);
+  
 
   // Escape during a rename must cancel, not save. The input's blur handler
   // fires as it unmounts, so without this flag Escape would still commit.
@@ -140,13 +141,7 @@ export default function App() {
     else dialogRef.current?.close();
   }, [confirmTarget]);
 
-  // Opening the row menu moves focus into it, so it can be driven entirely
-  // from the keyboard.
-  useEffect(() => {
-    if (!menu) return;
-    menuRef.current?.querySelector(".menu__item")?.focus();
-  }, [menu]);
-
+ 
   // A fixed-position menu doesn't follow its button, so dismiss it rather than
   // letting it drift away from the row it belongs to. Focus is NOT restored
   // here — the user clicked or scrolled elsewhere deliberately.
@@ -476,19 +471,6 @@ function openRowMenu(conversation, trigger) {
     if (restoreFocus) trigger?.focus();
   }
 
-  function onMenuKeyDown(ev) {
-    const items = [...(menuRef.current?.querySelectorAll(".menu__item") ?? [])];
-    const i = items.indexOf(document.activeElement);
-
-    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
-      ev.preventDefault();
-      const step = ev.key === "ArrowDown" ? 1 : -1;
-      items[(i + step + items.length) % items.length]?.focus();
-    } else if (ev.key === "Escape") {
-      ev.preventDefault();
-      closeMenu();
-    }
-  }
 
   // ---- eras ---------------------------------------------------------------
 
@@ -733,59 +715,21 @@ async function copyMessage(text) {
       </main>
 
       {menu && (
-        <div
-          className="menu"
-          role="menu"
-          ref={menuRef}
-          style={{ top: menu.top, left: menu.left }}
-          onClick={(ev) => ev.stopPropagation()}
-          onKeyDown={onMenuKeyDown}
-        >
-          <button
-            type="button"
-            className="menu__item"
-            role="menuitem"
-            onClick={() => {
-              const c = menu.conversation;
-              closeMenu({ restoreFocus: false });
-              startRename(c);
-            }}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path
-                d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            Rename
-          </button>
-          <button
-            type="button"
-            className="menu__item menu__item--danger"
-            role="menuitem"
-            onClick={() => {
-              const c = menu.conversation;
-              closeMenu({ restoreFocus: false });
-              setConfirmTarget(c);
-            }}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path
-                d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13M10 11v6M14 11v6"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            Delete
-          </button>
-        </div>
+        <RowMenu
+          top={menu.top}
+          left={menu.left}
+          onClose={closeMenu}
+          onRename={() => {
+            const c = menu.conversation;
+            closeMenu({ restoreFocus: false });
+            startRename(c);
+          }}
+          onDelete={() => {
+            const c = menu.conversation;
+            closeMenu({ restoreFocus: false });
+            setConfirmTarget(c);
+          }}
+        />
       )}
 
       <dialog
