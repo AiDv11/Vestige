@@ -10,6 +10,21 @@ language model.
 
 **Live: <https://vestige-ilw5.onrender.com>**
 
+<!-- The alt text below was written from the app's design, NOT from the image:
+     the file was a 0-byte placeholder when this was added. Check it against the
+     real screenshot and correct it — describing an image you cannot see is
+     exactly the kind of unverified claim the rest of this README argues
+     against. verify-docs.js fails until a real PNG is in place. -->
+
+![The Vestige interface: a dark near-black three-column layout. On the left, a
+sidebar of saved conversations grouped by date. In the centre, a question about
+a historical subject and the assistant's streamed answer beneath it, with a row
+of photographed Metropolitan Museum objects below the reply, each captioned with
+its title and curator-assigned date. On the right, the era picker — Ancient
+Rome, Egypt, Medieval Europe, the Islamic Golden Age, Song China — each card
+carrying its own accent colour, with the selected era tinting the
+interface.](client/public/screenshot.png)
+
 ---
 
 ## Why the era mechanic exists
@@ -241,6 +256,34 @@ client/dist/         the build output — this is what Express serves
 public/              the original vanilla frontend. Kept as reference; not served.
 index.js             the original terminal version, kept as history
 ```
+
+---
+
+## What I'd do next
+
+- **Postgres instead of SQLite.** This is the first one because it unblocks the
+  second. The deployed instance runs on Render's free tier, whose filesystem is
+  ephemeral, so every conversation is lost on restart — the limitation above is
+  a hosting artifact, not a design choice. `lib/db.js` is the only file that
+  touches storage, and the queries are plain SQL, so this is a driver swap and a
+  migration rather than a rewrite.
+- **Accounts, once persistence is real.** Sessions are an `HttpOnly` cookie
+  today: enough to stop two browsers sharing one conversation, and not auth. It
+  is deliberately in this order — accounts on top of a database that empties
+  itself would be a login that loses your history, which is worse than no login
+  at all.
+- **Frontend tests under jsdom.** Everything currently tested runs server-side.
+  The client has logic worth covering that has nothing to do with the network —
+  `Markdown.jsx` turning text into React elements, `useEra.js` deciding when to
+  inject a font `<link>`, and the SSE reducer's handling of events arriving out
+  of order. Those are the parts an interviewer would ask about, and they are
+  currently proven by clicking around.
+- **Deterministic artifact tests.** The Met suite hits the live API, so it
+  throttles, and different eras fail on different runs. That is not a test, it
+  is a weather report. Injecting `fetch` and replaying recorded responses would
+  make the three documented API bugs — the `departmentId` filter, `hasImages`,
+  the Incapsula HTML-with-200 — into fixtures that assert the mitigations still
+  work, instead of behaviour nobody re-checks because re-running is unpleasant.
 
 ---
 

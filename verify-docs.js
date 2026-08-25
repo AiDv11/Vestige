@@ -544,7 +544,85 @@ for (const [name, text] of DOCS) {
 }
 
 // ---------------------------------------------------------------------------
-// 8. Every path the docs name should exist.
+// 8. The screenshot.
+//
+// A README screenshot fails in a particular way: the file goes missing, or is
+// never committed, and GitHub renders a broken-image icon to everybody except
+// the person who has it on disk. `existsSync` alone does not catch that — this
+// file was added as a 0-BYTE PLACEHOLDER, which exists, is referenced, and
+// renders as nothing at all. So the check reads the magic bytes.
+//
+// The alt text is checked too, because an image in a README is documentation
+// and alt text is the part of it that has to work without eyes.
+//
+// Proven to bite (§10), each applied against a temporary real PNG and reverted:
+//
+//   the file deleted ..................................... RED
+//   the file truncated to 0 bytes ........................ RED
+//   a JPEG renamed .png .................................. RED
+//   the embed removed from the README .................... RED
+//   alt text reduced to "screenshot" ..................... RED
+//   the embed moved below the first section heading ...... RED
+// ---------------------------------------------------------------------------
+
+group("Screenshot");
+
+const SCREENSHOT = "client/public/screenshot.png";
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+const screenshotBytes = existsSync(SCREENSHOT) ? readFileSync(SCREENSHOT) : null;
+
+check(
+  `${SCREENSHOT} exists`,
+  screenshotBytes !== null,
+  "the README embeds it; without the file GitHub renders a broken image",
+);
+
+check(
+  `${SCREENSHOT} is a real PNG, not an empty placeholder`,
+  screenshotBytes !== null &&
+    screenshotBytes.length > PNG_MAGIC.length &&
+    screenshotBytes.subarray(0, PNG_MAGIC.length).equals(PNG_MAGIC),
+  screenshotBytes === null
+    ? "file is missing"
+    : `${screenshotBytes.length} bytes, and the PNG signature is ${
+        screenshotBytes.length ? "wrong" : "absent"
+      } — replace the placeholder with a real capture`,
+);
+
+// Matched on the path rather than on `![`, so moving the image to a different
+// place in the README does not break the check — only removing it does.
+const embed = README.match(
+  new RegExp(`!\\[([^\\]]*)\\]\\(${SCREENSHOT.replace(/[.]/g, "\\.")}\\)`),
+);
+
+check("README.md embeds the screenshot", !!embed, `expected ![alt](${SCREENSHOT})`);
+
+if (embed) {
+  const alt = embed[1].replace(/\s+/g, " ").trim();
+  check(
+    "the screenshot has alt text that describes it",
+    alt.length >= 40,
+    `alt is ${alt.length} chars: "${alt}" — say what is IN the image, not "screenshot"`,
+  );
+
+  // Placement: below the live link, above the first section heading. Asked for
+  // explicitly, and it is the one thing about an image that a diff makes hard
+  // to see going wrong.
+  const liveLink = README.indexOf("**Live:");
+  const firstHeading = README.indexOf("\n## ");
+  check(
+    "the screenshot sits between the live link and the first section",
+    liveLink !== -1 &&
+      firstHeading !== -1 &&
+      embed.index > liveLink &&
+      embed.index < firstHeading,
+    `live link at ${liveLink}, image at ${embed.index}, first heading at ${firstHeading}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 9. Every path the docs name should exist.
 //
 // The general version of check 3: catches a file map that drifts from the tree
 // in either direction. client/dist and data/ are generated, so they are exempt.
