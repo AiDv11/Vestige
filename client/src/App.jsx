@@ -3,6 +3,7 @@ import Markdown from "./Markdown";
 import { useEra } from "./useEra";
 import Composer from "./Composer";
 import EraPicker from "./EraPicker";
+import Transcript from "./Transcript.jsx";
 
 /**
  * Turn an SSE response body into a stream of parsed event objects.
@@ -37,14 +38,7 @@ async function* readEvents(response) {
   }
 }
 
-const THINKING = {
-  all: ["Consulting the archives", "Cross-referencing dates", "Checking the record"],
-  rome: ["Consulting the annals", "Checking the Fasti", "Reading the inscriptions"],
-  egypt: ["Reading the cartouches", "Checking the king lists", "Consulting the papyri"],
-  medieval: ["Turning the manuscript", "Consulting the chronicles", "Checking the rolls"],
-  islamic: ["Consulting the House of Wisdom", "Checking the star tables", "Reading the commentaries"],
-  song: ["Setting the movable type", "Unrolling the scroll", "Consulting the gazetteer"],
-};
+
 
 const STARTERS = {
   all: [
@@ -582,6 +576,20 @@ export default function App() {
   if (el) el.scrollTop = el.scrollHeight;
   }
 
+  function startEdit(index) {
+  const m = messages[index];
+  // The id arrives from the stream slightly after the message appears.
+  if (!m?.id) return setToast("Still saving — try again in a moment");
+  setEditingIndex(index);
+  setEditText(m.content);
+}
+
+async function copyMessage(text) {
+  await navigator.clipboard.writeText(text);
+  setToast("Copied");
+}
+
+
   return (
     <div className="app" data-open={String(drawerOpen)}>
       <aside className="rail">
@@ -736,186 +744,78 @@ export default function App() {
           hundreds of times. The finished reply is announced once, via the
           polite region at the end of the document instead.
         */}
-        <div
-          className="transcript"
-          ref={transcriptRef}
-          role="log"
-          aria-label="Conversation"
-          onScroll={onTranscriptScroll}
-        >
-          {messages.length === 0 ? (
-            <div className="empty">
-              <div className="empty__brand">
-                <svg className="empty__mark" aria-hidden="true" focusable="false">
-                  <use href="#vestige-mark" />
-                </svg>
-                <h2 className="empty__name">Vestige</h2>
-                <span className="empty__tag">ask the past</span>
-              </div>
-
-              <p className="empty__sub">
-                Pick an era and the assistant takes on that period's expertise.
-                Follow-up questions keep their context.
-              </p>
-
-              <p className="empty__label">Era</p>
-
-              <EraPicker
-                  eras={eras}
-                  selected={era}
-                  onChoose={chooseEra}
-                  onHover={setHoverEra}
-                  onRemove={removeEra}
-                  adding={addingEra}
-                  onStartAdd={() => setAddingEra(true)}
-                  onCancelAdd={() => {
-                    setAddingEra(false);
-                    setEraNote(null);
-                  }}
-                  name={eraName}
-                  onNameChange={setEraName}
-                  onSubmit={createEra}
-                  creating={creatingEra}
-                  note={eraNote}
-                />
-
-              {starters.length > 0 && (
-                <>
-                  <p className="empty__label">Try one</p>
-                  <div className="starters">
-                    {starters.map((q) => (
-                      <button
-                        key={q}
-                        type="button"
-                        className="starter"
-                        onClick={() => send(q)}
-                      >
-                        {q}
-                      </button>
-                    ))}
+        
+        <Transcript
+              scrollRef={transcriptRef}
+              onScroll={onTranscriptScroll}
+              messages={messages}
+              eraLabel={currentEra?.label ?? "History"}
+              era={era}
+              waiting={waiting}
+              editingIndex={editingIndex}
+              editText={editText}
+              onEditTextChange={setEditText}
+              onStartEdit={startEdit}
+              onCancelEdit={() => setEditingIndex(null)}
+              onSubmitEdit={submitEdit}
+              onCopy={copyMessage}
+              onRegenerate={() => regenerate()}
+              onRetry={() => regenerate({ dropLocalReply: false })}
+              empty={
+                <div className="empty">
+                  <div className="empty__brand">
+                    <svg className="empty__mark" aria-hidden="true" focusable="false">
+                      <use href="#vestige-mark" />
+                    </svg>
+                    <h2 className="empty__name">Vestige</h2>
+                    <span className="empty__tag">ask the past</span>
                   </div>
-                </>
-              )}
-            </div>
-          ) : (
-            messages.map((m, i) => {
-              if (m.role === "user") {
-                return (
-                  <div key={i} className="msg msg--user">
-                    {editingIndex === i ? (
-                      <>
-                        <textarea
-                          className="msg__edit"
-                          value={editText}
-                          autoFocus
-                          aria-label="Edit your message"
-                          onChange={(ev) => setEditText(ev.target.value)}
-                          onKeyDown={(ev) => {
-                            if (ev.key === "Enter" && !ev.shiftKey) {
-                              ev.preventDefault();
-                              submitEdit(i);
-                            } else if (ev.key === "Escape") {
-                              ev.preventDefault();
-                              setEditingIndex(null);
-                            }
-                          }}
-                        />
-                        <div className="msg__edit-actions">
+
+                  <p className="empty__sub">
+                    Pick an era and the assistant takes on that period's expertise.
+                    Follow-up questions keep their context.
+                  </p>
+
+                  <p className="empty__label">Era</p>
+                  <EraPicker
+                    eras={eras}
+                    selected={era}
+                    onChoose={chooseEra}
+                    onHover={setHoverEra}
+                    onRemove={removeEra}
+                    adding={addingEra}
+                    onStartAdd={() => setAddingEra(true)}
+                    onCancelAdd={() => {
+                      setAddingEra(false);
+                      setEraNote(null);
+                    }}
+                    name={eraName}
+                    onNameChange={setEraName}
+                    onSubmit={createEra}
+                    creating={creatingEra}
+                    note={eraNote}
+                  />
+
+                  {starters.length > 0 && (
+                    <>
+                      <p className="empty__label">Try one</p>
+                      <div className="starters">
+                        {starters.map((q) => (
                           <button
+                            key={q}
                             type="button"
-                            className="act"
-                            onClick={() => setEditingIndex(null)}
+                            className="starter"
+                            onClick={() => send(q)}
                           >
-                            Cancel
+                            {q}
                           </button>
-                          <button
-                            type="button"
-                            className="act act--primary"
-                            onClick={() => submitEdit(i)}
-                          >
-                            Save &amp; resend
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="msg__bubble">{m.content}</div>
-                        <div className="msg__actions">
-                          <button
-                            type="button"
-                            className="act"
-                            onClick={() => {
-                              // The id arrives from the stream slightly after
-                              // the message appears, so it can briefly be
-                              // missing.
-                              if (!m.id) {
-                                return setToast("Still saving — try again in a moment");
-                              }
-                              setEditingIndex(i);
-                              setEditText(m.content);
-                            }}
-                          >
-                            Edit
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                );
-              }
-
-              if (m.role === "error") {
-                // Without a retry an error is a dead end — the question is
-                // already stored server-side, so trying again costs a click.
-                return (
-                  <div key={i} className="msg msg--error" role="alert">
-                    <span>{m.content}</span>
-                    <button
-                      type="button"
-                      className="act"
-                      onClick={() => regenerate({ dropLocalReply: false })}
-                    >
-                      Try again
-                    </button>
-                  </div>
-                );
-              }
-
-              return (
-                <div key={i} className="msg msg--bot">
-                  <p className="msg__who">{currentEra?.label ?? "History"}</p>
-                  <div className="msg__body">
-                    <Markdown text={m.content} />
-                  </div>
-
-                  {m.artifacts?.length > 0 && <Artifacts items={m.artifacts} />}
-
-                  <div className="msg__actions">
-                    <button
-                      type="button"
-                      className="act"
-                      onClick={async () => {
-                        await navigator.clipboard.writeText(m.content);
-                        setToast("Copied");
-                      }}
-                    >
-                      Copy
-                    </button>
-                    <button
-                      type="button"
-                      className="act"
-                      onClick={() => regenerate()}
-                    >
-                      Regenerate
-                    </button>
-                  </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
-              );
-            })
-          )}
-
-          {waiting && <Thinking era={era} />}
-        </div>
+              }
+            />
 
                   <Composer
           input={input}
@@ -1031,73 +931,9 @@ export default function App() {
   );
 }
 
-/** Era-flavoured waiting text, cycling while the model composes. */
-function Thinking({ era }) {
-  const lines = THINKING[era] ?? THINKING.all;
-  const [i, setI] = useState(0);
 
-  useEffect(() => {
-    const t = setInterval(() => setI((n) => (n + 1) % lines.length), 2400);
-    return () => clearInterval(t);
-  }, [lines.length]);
 
-  return (
-    <div className="thinking">
-      <span className="thinking__dots" aria-hidden="true">
-        <i />
-        <i />
-        <i />
-      </span>
-      <span className="thinking__text" key={i}>
-        {lines[i]}…
-      </span>
-    </div>
-  );
-}
 
-/**
- * Real objects from the Met, shown as evidence under an answer.
- *
- * Museum fields are third-party text and get the same treatment as model
- * output: rendered as text nodes, never as markup.
- */
-function Artifacts({ items }) {
-  return (
-    <div className="relics">
-      <p className="relics__label">From the Met Museum collection</p>
-      <div className="relics__row">
-        {items.map((item, i) => (
-          <a
-            key={i}
-            className="relic"
-            href={item.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={[item.title, item.date, item.culture, item.credit]
-              .filter(Boolean)
-              .join(" · ")}
-          >
-            <div className="relic__frame">
-              <img
-                src={item.image}
-                alt={item.title}
-                loading="lazy"
-                decoding="async"
-                // Dead image URLs happen in a collection this size; fade the
-                // frame rather than showing a torn-image icon.
-                onError={(e) => {
-                  e.currentTarget.dataset.broken = "true";
-                }}
-              />
-            </div>
-            <span className="relic__title">{item.title}</span>
-            <span className="relic__date">{item.date}</span>
-          </a>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 /** Your error routes all reply with { error }. Fall back to the status code. */
 async function errorText(res) {
