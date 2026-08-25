@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import Markdown from "./Markdown";
 import { useEra } from "./useEra";
+import Composer from "./Composer";
 
 /**
  * Turn an SSE response body into a stream of parsed event objects.
@@ -574,6 +575,12 @@ export default function App() {
     setAtBottom(scrollHeight - scrollTop - clientHeight < 120);
   }
 
+  function jumpToBottom() {
+  setAtBottom(true);
+  const el = transcriptRef.current;
+  if (el) el.scrollTop = el.scrollHeight;
+  }
+
   return (
     <div className="app" data-open={String(drawerOpen)}>
       <aside className="rail">
@@ -1021,87 +1028,17 @@ export default function App() {
           {waiting && <Thinking era={era} />}
         </div>
 
-        <div className="composer-dock">
-          {!atBottom && messages.length > 0 && (
-            <button
-              type="button"
-              className="to-bottom"
-              onClick={() => {
-                setAtBottom(true);
-                const el = transcriptRef.current;
-                if (el) el.scrollTop = el.scrollHeight;
-              }}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path
-                  d="M12 5v14M6 13l6 6 6-6"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              Latest
-            </button>
-          )}
+                  <Composer
+          input={input}
+          onInputChange={setInput}
+          onSend={() => send()}
+          onStop={() => abortRef.current?.abort()}
+          busy={busy}
+          showJump={!atBottom && messages.length > 0}
+          onJump={jumpToBottom}
+        />
 
-          <div className="composer">
-            <label className="sr-only" htmlFor="prompt">
-              Ask a history question
-            </label>
-            <textarea
-              id="prompt"
-              className="composer__input"
-              rows={1}
-              value={input}
-              onChange={(ev) => setInput(ev.target.value)}
-              onKeyDown={(ev) => {
-                if (
-                  ev.key === "Enter" &&
-                  !ev.shiftKey &&
-                  !ev.nativeEvent.isComposing
-                ) {
-                  ev.preventDefault();
-                  send();
-                }
-              }}
-              placeholder="Ask a history question…"
-              autoComplete="off"
-            />
-            <button
-              type="button"
-              className="composer__action"
-              data-state={busy ? "abort" : "send"}
-              aria-label={busy ? "Stop generating" : "Send"}
-              onClick={busy ? () => abortRef.current?.abort() : () => send()}
-            >
-              <svg
-                className="composer__icon composer__icon--send"
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-                focusable="false"
-              >
-                <path
-                  d="M5 12h13m0 0-5.5-5.5M18 12l-5.5 5.5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <svg
-                className="composer__icon composer__icon--abort"
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-                focusable="false"
-              >
-                <rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" />
-              </svg>
-            </button>
-          </div>
-        </div>
+            
       </main>
 
       {menu && (
